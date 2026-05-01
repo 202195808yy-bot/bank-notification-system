@@ -13,8 +13,26 @@ public class Customer {
     private String phone;
     @Column(name = "push_token")
     private String pushToken;
+    private String password;
+    private String role;
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
+    }
 
     public Customer() {}
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
 
     // Getters and Setters
     public Long getId() { return id; }

@@ -10,7 +10,7 @@ spring:
     hibernate:
       ddl-auto: update
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: 192.168.23.129:9092
     consumer:
       group-id: channel-service
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer

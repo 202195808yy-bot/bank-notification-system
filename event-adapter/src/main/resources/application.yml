@@ -1,8 +1,14 @@
 server:
   port: 8085
+
 spring:
+  application:
+    name: event-adapter
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: 192.168.23.129:9092
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        # 可选：为了可靠投递，开启幂等
+        enable.idempotence: true

@@ -18,6 +18,9 @@ public class TemplateService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public List<NotificationTemplate> findAll(String eventType, String channel, String locale) {
+        if (eventType == null && channel == null && locale == null) {
+            return templateRepository.findAll();
+        }
         return templateRepository.findByEventTypeAndChannelAndLocale(eventType, channel, locale);
     }
 

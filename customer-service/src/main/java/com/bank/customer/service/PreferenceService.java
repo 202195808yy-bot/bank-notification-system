@@ -47,12 +47,20 @@ public class PreferenceService {
 
     @Transactional
     public void updatePreferences(Long customerId, List<NotificationPreference> newPrefs) {
+        // 先删除该客户的所有旧偏好
         preferenceRepository.deleteByCustomerId(customerId);
+        preferenceRepository.flush();   // 确保删除立即生效
+
+        // 强制将新偏好设置为插入（id 置 null）
         newPrefs.forEach(p -> {
-            p.setId(null); // ensure new insert
+            p.setId(null);
             p.setCustomerId(customerId);
         });
+
+        // 批量插入
         preferenceRepository.saveAll(newPrefs);
+
+        // 清除缓存
         redisTemplate.delete("pref:" + customerId);
     }
 }

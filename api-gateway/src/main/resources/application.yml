@@ -1,5 +1,6 @@
 server:
   port: 8080
+
 spring:
   application:
     name: api-gateway
@@ -9,7 +10,7 @@ spring:
         - id: customer-service
           uri: http://localhost:8081
           predicates:
-            - Path=/api/customers/**, /api/preferences/**
+            - Path=/api/customers/**, /api/preferences/**, /api/auth/**
         - id: notification-service
           uri: http://localhost:8082
           predicates:
@@ -22,10 +23,6 @@ spring:
           uri: http://localhost:8084
           predicates:
             - Path=/api/callback/**
-      default-filters:
-        - RemoveRequestHeader=Cookie
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          issuer-uri: http://localhost:8080/auth/realms/bank
+
+jwt:
+  secret: bXktc2VjcmV0LWtleS1mb3ItYmFuay1ub3RpZmljYXRpb24=

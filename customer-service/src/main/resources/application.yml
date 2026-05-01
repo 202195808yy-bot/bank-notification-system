@@ -1,15 +1,19 @@
 server:
   port: 8081
+
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/bank_notifications
     username: postgres
     password: 123456
     driver-class-name: org.postgresql.Driver
+
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: false
   redis:
-    host: localhost
+    host: 192.168.23.129
     port: 6379
+
+jwt:
+  secret: bXktc2VjcmV0LWtleS1mb3ItYmFuay1ub3RpZmljYXRpb24=
