@@ -1,0 +1,31 @@
+server:
+  port: 8080
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: customer-service
+          uri: http://localhost:8081
+          predicates:
+            - Path=/api/customers/**, /api/preferences/**
+        - id: notification-service
+          uri: http://localhost:8082
+          predicates:
+            - Path=/api/notifications/**
+        - id: template-service
+          uri: http://localhost:8083
+          predicates:
+            - Path=/api/templates/**
+        - id: channel-service-callback
+          uri: http://localhost:8084
+          predicates:
+            - Path=/api/callback/**
+      default-filters:
+        - RemoveRequestHeader=Cookie
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8080/auth/realms/bank
