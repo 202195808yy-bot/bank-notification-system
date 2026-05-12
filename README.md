@@ -117,7 +117,7 @@ docker compose build
 docker compose up -d
 The first build may take 5–10 minutes.
 
-Access the application
+### Access the application
 
 Frontend: http://localhost:3000
 
@@ -125,7 +125,7 @@ Default admin account: admin@bank.com
 
 Default password: 123456 (corresponds to the BCrypt hash in the database)
 
-Stop the system
+### Stop the system
 
 bash
 docker compose down
@@ -136,7 +136,7 @@ bash
 docker exec -i bank-postgres psql -U postgres -d bank_notifications < seed-data.sql
 After execution, log in as any user to see notification history, dashboard statistics, and preferences.
 
-API Testing
+### API Testing
 The project includes a ready-to-import Apifox or Postman collection file: api-tests.json.
 Import it to run the following core endpoints with a single click:
 
@@ -160,7 +160,7 @@ POST /api/events – Send a test Kafka event
 
 All requests include assertion scripts for automated regression testing.
 
-Project Structure
+### Project Structure
 bank-notification-backend – Maven parent project for backend
 
 common/ – Shared entities, enums, constants, DTOs
@@ -205,7 +205,7 @@ api-tests.json – Apifox / Postman test collection
 
 README.md – This document
 
-Important Notes
+### Important Notes
 All user passwords are stored as BCrypt hashes in the database. Test data uses the password 123456 with the hash $2a$10$.5G.GxQ3/x2upJ0oE.wopO80eOSN.FQgwLza3fcAO.oJ7o4sAJHKe.
 
 The JwtAuthFilter in the gateway is in formal authentication mode: only login/register endpoints are public; all other requests must carry a valid JWT; admin routes additionally check for the ADMIN role.
@@ -214,7 +214,7 @@ Redis connection may occasionally fail due to container startup ordering, but al
 
 If you modify backend code, run docker compose build --no-cache <service-name> to ensure the new code takes effect.
 
-License
+### License
 This project is an academic assignment for the "Web Application User Interface Development" course at Vladimir State University and is intended for educational purposes only.
 
 Student: Ivan Ivanov
