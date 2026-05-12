@@ -163,29 +163,35 @@ All requests include assertion scripts for automated regression testing.
 ### Project Structure
 <details>
 <summary>Click to expand full project tree</summary>
+bank-notification-system/
+│
+├── bank-notification-backend/ ← Maven parent project for backend
+│ ├── common/ ← Shared entities, enums, constants, DTOs
+│ ├── api-gateway/ ← Gateway: JWT filter + routes
+│ ├── customer-service/ ← User service: authentication, preferences
+│ ├── notification-service/ ← Event processing, rendering, retry
+│ ├── template-service/ ← Template CRUD + Redis caching
+│ ├── channel-service/ ← Sending strategies + circuit breaker
+│ ├── event-adapter/ ← HTTP → Kafka adapter
+│ ├── docker-compose.yml ← All services orchestration
+│ └── seed-data.sql ← 2000 test data generation script
+│
+├── bank-notification-web/ ← React frontend project
+│ ├── src/
+│ │ ├── api/ ← Axios instance and API wrappers
+│ │ ├── store/ ← Zustand state stores
+│ │ ├── pages/ ← Page components
+│ │ ├── components/ ← Common UI components
+│ │ ├── i18n/ ← Multi-language messages
+│ │ └── utils/ ← Constants, date formatters
+│ ├── Dockerfile ← Frontend image build file
+│ └── nginx/conf.d/default.conf ← Nginx reverse proxy config
+│
+├── api-tests.json ← Apifox/Postman test collection
+└── README.md ← This document
 
-- **bank-notification-backend** – Maven parent project for backend
-  - **common/** – Shared entities, enums, constants, DTOs
-  - **api-gateway/** – Gateway: JWT filter + routes
-  - **customer-service/** – User service: authentication, preferences
-  - **notification-service/** – Event processing, rendering, retry
-  - **template-service/** – Template CRUD + Redis caching
-  - **channel-service/** – Sending strategies + circuit breaker
-  - **event-adapter/** – HTTP → Kafka adapter
-  - **docker-compose.yml** – All services orchestration
-  - **seed-data.sql** – 2000 test data generation script
-- **bank-notification-web** – React frontend project
-  - **src/**
-    - **api/** – Axios instance and API wrappers
-    - **store/** – Zustand state stores
-    - **pages/** – Page components
-    - **components/** – Common UI components
-    - **i18n/** – Multi-language messages
-    - **utils/** – Constants, date formatters
-  - **Dockerfile** – Frontend image build file
-  - **nginx/conf.d/default.conf** – Nginx reverse proxy config
-- **api-tests.json** – Apifox / Postman test collection
-- **README.md** – This document
+text
+</details>
 
 ### Important Notes
 All user passwords are stored as BCrypt hashes in the database. Test data uses the password 123456 with the hash $2a$10$.5G.GxQ3/x2upJ0oE.wopO80eOSN.FQgwLza3fcAO.oJ7o4sAJHKe.
