@@ -1,4 +1,3 @@
-markdown
 # Bank Notification System
 
 > Microservice-based automated customer notification system for banking events (transactions, risk alerts, billing reminders) via SMS, Email and Push notifications.
@@ -50,34 +49,31 @@ Users can manage their notification preferences, view notification history, and 
 ---
 
 ## 🧱 System Architecture
-┌─────────────────────────────────────────────────────────────┐
-│ React SPA (Port 3000) │
-└──────────────────────────┬──────────────────────────────────┘
-│ HTTPS /api/*
-▼
-┌─────────────────────────────────────────────────────────────┐
-│ API Gateway (Spring Cloud Gateway) │
-│ Port 8080 – JWT Auth │
-└───┬──────────┬──────────┬──────────┬──────────┬─────────────┘
-│ │ │ │ │
-▼ ▼ ▼ ▼ ▼
-┌────────┐┌────────┐┌────────┐┌────────┐┌────────┐
-│Customer││ Notif. ││Template││Channel ││ Event │
-│Service ││ Service ││Service ││Service ││Adapter │
-│ :8081 ││ :8082 ││ :8083 ││ :8084 ││ :8085 │
-└───┬────┘└───┬─────┘└───┬─────┘└───┬─────┘└───┬────┘
-│ │ │ │ │
-│ ┌────▼─────┐ │ │ │
-│ │ Kafka │◄───┘ │ │
-│ │ :9092 │◄──────────────┘ │
-│ └────┬──────┘◄────────────────────────┘
-│ │
-▼ ▼
-┌────────┐┌───────┐
-│PostgreSQL││ Redis │
-│ :5432 ││ :6379 │
-└────────┘└───────┘
+The system consists of 6 microservices, 1 React frontend, and 3 middleware components, all orchestrated via Docker Compose.
 
+Services and responsibilities:
+
+Service	Port	Description
+api-gateway	8080	Unified entry point, JWT authentication, route forwarding
+customer-service	8081	User registration/login, notification preferences management
+notification-service	8082	Consumes banking events, matches preferences, renders templates, generates and retries notifications
+template-service	8083	Notification template CRUD, Redis cache synchronization
+channel-service	8084	Channel sending (SMS/Email/Push) with circuit breaker and fallback
+event-adapter	8085	Receives external events and publishes them to Kafka
+frontend (React)	3000	Management interface (dashboard, preferences, history, templates)
+Middleware: PostgreSQL 16, Redis 7, Apache Kafka (Zookeeper)
+
+Typical request flow:
+
+User logs in via api-gateway and obtains a JWT
+
+Core banking system pushes an event to Kafka topic bank.events
+
+notification-service consumes the event → fetches preferences → renders template → creates notification → sends command to Kafka topic notification.send.command
+
+channel-service consumes the command → invokes the specific sending channel → writes result to Kafka topic notification.status
+
+Frontend queries notification history, preferences, and statistics through the gateway
 text
 
 ---
