@@ -161,7 +161,8 @@ POST /api/events – Send a test Kafka event
 All requests include assertion scripts for automated regression testing.
 
 ### Project Structure
-## Project Structure
+<details>
+<summary>Click to expand full project tree</summary>
 
 - **bank-notification-backend** – Maven parent project for backend
   - **common/** – Shared entities, enums, constants, DTOs
