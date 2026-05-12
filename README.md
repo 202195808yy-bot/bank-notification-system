@@ -122,14 +122,14 @@ Stop the system
 
 bash
 docker compose down
-📀 Test Data (optional)
+##📀 Test Data (optional)
 To populate the database with 2,000 sample notifications, run:
 
 bash
 docker exec -i bank-postgres psql -U postgres -d bank_notifications < seed-data.sql
 (Included in the repository root)
 
-🧪 API Testing
+##🧪 API Testing
 A ready‑to‑use Apifox/Postman collection is available in the file api-tests.json at the root of the project.
 Import it and run the following flow:
 
@@ -149,33 +149,31 @@ POST /api/templates – (admin) create template
 
 POST /api/events – send a test banking event
 
-📂 Project Structure
-bank-notification-system/
-│
-├── bank-notification-backend/ ← Maven parent project for backend
-│ ├── common/ ← Shared entities, enums, constants, DTOs
-│ ├── api-gateway/ ← Gateway: JWT filter + routes
-│ ├── customer-service/ ← User service: authentication, preferences
-│ ├── notification-service/ ← Notification service: event processing, rendering, retry
-│ ├── template-service/ ← Template service: CRUD + Redis caching
-│ ├── channel-service/ ← Channel service: sending strategies + circuit breaker
-│ ├── event-adapter/ ← Event adapter: HTTP → Kafka
-│ ├── docker-compose.yml ← All services orchestration (one-click start)
-│ └── seed-data.sql ← 2000 test data generation script
-│
-├── bank-notification-web/ ← React frontend project
-│ ├── src/
-│ │ ├── api/ ← Axios instance and API wrappers
-│ │ ├── store/ ← Zustand state stores (auth, preference, notification, template)
-│ │ ├── pages/ ← Page components (login, dashboard, preferences …)
-│ │ ├── components/ ← Common components (Layout, NotificationCard, PreferenceForm)
-│ │ ├── i18n/ ← Multi-language messages (zh, en, ru)
-│ │ └── utils/ ← Constants, date formatters
-│ ├── Dockerfile ← Frontend image build file
-│ └── nginx/conf.d/default.conf ← Nginx reverse proxy configuration
-│
-├── api-tests.json ← Apifox/Postman test collection
-└── README.md ← This document
+
+## 📂 Project Structure
+
+- **bank-notification-backend** – Maven parent project for backend
+  - **common/** – Shared entities, enums, constants, DTOs
+  - **api-gateway/** – Gateway: JWT filter + routes
+  - **customer-service/** – User service: authentication, preferences
+  - **notification-service/** – Event processing, rendering, retry
+  - **template-service/** – Template CRUD + Redis caching
+  - **channel-service/** – Sending strategies + circuit breaker
+  - **event-adapter/** – HTTP → Kafka adapter
+  - **docker-compose.yml** – All services orchestration
+  - **seed-data.sql** – 2000 test data generation script
+- **bank-notification-web** – React frontend project
+  - **src/**
+    - **api/** – Axios instance and API wrappers
+    - **store/** – Zustand state stores
+    - **pages/** – Page components
+    - **components/** – Common UI components
+    - **i18n/** – Multi-language messages
+    - **utils/** – Constants, date formatters
+  - **Dockerfile** – Frontend image build file
+  - **nginx/conf.d/default.conf** – Nginx reverse proxy config
+- **api-tests.json** – Apifox / Postman test collection
+- **README.md** – This document
 📜 License
 This project is created for educational purposes as part of the university course "Web Application User Interface Development" (Vladimir State University, 2026).
 
