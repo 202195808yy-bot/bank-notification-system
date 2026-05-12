@@ -1,50 +1,73 @@
+markdown
 # Bank Notification System
 
-> Microservice-based automated customer notification system for banking events (transactions, risk alerts, billing reminders) via SMS, Email and Push notifications.
-
-## 📦 Overview
-
-This project is a full-stack application developed as part of the **Web Application User Interface Development** course.  
-It demonstrates a modern microservice architecture with **Spring Boot**, **React**, **PostgreSQL**, **Redis**, **Apache Kafka**, and **Docker**.
-
-The system automatically sends personalised notifications to bank customers based on their preferences whenever a banking event occurs (e.g. a new transaction, a security alert, or a bill due date).  
-Users can manage their notification preferences, view notification history, and administrators can manage message templates.
+A full-stack microservice-based application that automates customer notifications for banking events (transactions, risk alerts, bill reminders) via SMS, Email, and Push.
 
 ---
 
-## ✨ Key Features
+## Overview
+
+This project is a comprehensive assignment for the course **"Web Application User Interface Development"**.  
+It adopts a **front-end/back-end separation + microservices** architecture: the back end uses **Spring Cloud Gateway** as the unified entry point and **Apache Kafka** for asynchronous event-driven processing; the front end is a **React** single-page application with internationalization, state management, and Ant Design components.
+
+Core flow: Banking event → Kafka message bus → Notification Service matches customer preferences → Renders template → Multi-channel delivery.
+
+---
+
+## Key Features
 
 ### 🔐 Authentication & Authorization
-- JWT‑based authentication (access token)
-- Role‑based access control (`USER` / `ADMIN`)
-- Secure API Gateway that enforces authentication on all endpoints (except login/register)
+- JWT-based login and registration.
+- Gateway-level authentication; only `/api/auth/login` and `/api/auth/register` are public.
+- Admin role (ADMIN) can access `/admin/**` routes; regular users are denied.
 
 ### 📊 Dashboard
-- Real‑time statistics: total notifications, pending, sent, failed
+- Displays real-time statistics for the current user: total notifications, pending, sent, failed.
 
 ### ⚙️ Notification Preferences
-- Set preferred channels per event type (SMS, Email, Push)
-- Configure quiet hours (do not disturb)
-- Enable / disable notifications for each event type
-- Redis caching for fast reads with database fallback
+- Set notification channels (SMS, Email, Push) independently for each event type (transaction, risk, promotion, bill).
+- Define quiet hours (do not disturb).
+- Enable/disable notifications per event type.
+- Redis caching for fast reads with automatic database fallback on failure.
 
 ### 📬 Notification History
-- Paginated list with filtering by event type, channel, status and date range
-- Retry failed notifications (re‑queues them via Kafka)
+- Paginated list with filters by event type, channel, status, and date range.
+- Failed notifications can be manually retried (re-queued via Kafka).
 
-### 📄 Template Management (admin only)
-- Create, update, delete notification templates with variable placeholders (`{{variable}}`)
-- Multiple languages / locales
-- Redis Pub/Sub cache synchronisation
+### 📄 Template Management (Admin only)
+- CRUD operations on notification templates.
+- Templates support `{{variable}}` placeholders for dynamic content.
+- Multi-language/multi-locale support (zh_CN, en_US, ru_RU).
+- Redis Pub/Sub cache synchronization ensures templates are updated instantly.
 
 ### 🚀 Asynchronous Event Processing
-- Apache Kafka topics: `bank.events`, `notification.send.command`, `notification.status`
-- Event‑driven generation of notifications
-- Idempotency via Redis SETNX (duplicate events are ignored)
-- Simulated multi‑channel sending (SMS, Email, Push) with circuit breaker (Resilience4j)
+- Three Kafka topics: `bank.events`, `notification.send.command`, `notification.status`.
+- Event adapter receives external events and publishes them to Kafka.
+- Notification service consumes events, matches preferences, renders templates, generates notifications, and publishes send commands.
+- Channel service consumes send commands and dispatches to the appropriate sender (SMS/Email/Push) using the Strategy pattern with circuit breaker and fallback.
+- Idempotency: the same event ID is not processed again within 1 hour (Redis SETNX).
 
-### 🌐 Multi‑language UI
-- Supports English, Russian and Chinese (react‑intl + Ant Design ConfigProvider)
+### 🌐 Multi-language UI
+- Supports English, Russian, and Simplified Chinese.
+- Uses react-intl for text internationalization; Ant Design language packs are switched accordingly.
+
+---
+
+## Technology Stack
+
+| Layer | Technology |
+|-------|------------|
+| **Backend Framework** | Java 17, Spring Boot 3.1.6 |
+| **API Gateway** | Spring Cloud Gateway |
+| **Inter-service Communication** | OpenFeign, RestTemplate |
+| **Security** | JJWT (JSON Web Tokens), Spring Security |
+| **Database** | PostgreSQL 16 |
+| **Cache** | Redis 7 (Lettuce) |
+| **Message Broker** | Apache Kafka (Confluent 7.5.0) |
+| **Frontend** | React 18, React Router 6, Ant Design 5, Zustand |
+| **Internationalization** | react-intl |
+| **Containerization** | Docker, Docker Compose |
+| **Testing Tools** | Apifox / Postman Collections, JMeter |
 
 ---
 
@@ -72,113 +95,128 @@ The system consists of 6 microservices, 1 React frontend, and 3 middleware compo
 3. `notification-service` consumes the event → fetches preferences → renders template → creates notification → sends command to Kafka topic `notification.send.command`
 4. `channel-service` consumes the command → invokes the specific sending channel → writes result to Kafka topic `notification.status`
 5. Frontend queries notification history, preferences, and statistics through the gateway
-text
 
 ---
 
-## 🛠 Technology Stack
-
-| Layer               | Technology                                         |
-|---------------------|----------------------------------------------------|
-| Backend Framework   | Java 17, Spring Boot 3.1.6                         |
-| API Gateway         | Spring Cloud Gateway                               |
-| Internal Calls      | OpenFeign, RestTemplate                            |
-| Authentication      | JJWT (JSON Web Tokens), Spring Security            |
-| Database            | PostgreSQL 16                                      |
-| Caching             | Redis 7 (Lettuce)                                  |
-| Message Broker      | Apache Kafka (Confluent 7.5.0)                     |
-| Frontend            | React 18, React Router 6, Ant Design 5, Zustand    |
-| Internationalisation| react‑intl                                        |
-| Containerisation    | Docker, Docker Compose                             |
-| Testing             | Postman / Apifox collections, JMeter               |
-
----
-
-## 🚀 Quick Start (Docker Compose)
+## Quick Start (Docker Compose)
 
 ### Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) 4.x+
-- Ports `3000`, `5432`, `6379`, `8080‑8085`, `9092` available
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) 4.x or later
+- Ensure the following ports are available: `3000`, `5432`, `6379`, `8080‑8085`, `9092`
 
 ### Steps
+
 1. **Clone the repository**
    ```bash
    git clone https://github.com/youruser/bank-notification-system.git
    cd bank-notification-system
-Start all services
+Build and start all services
 
 bash
 docker compose build
 docker compose up -d
-(First build may take a few minutes)
+The first build may take 5–10 minutes.
 
 Access the application
 
 Frontend: http://localhost:3000
 
-Default admin account: admin@bank.com / 123456
+Default admin account: admin@bank.com
+
+Default password: 123456 (corresponds to the BCrypt hash in the database)
 
 Stop the system
 
 bash
 docker compose down
-##📀 Test Data (optional)
-To populate the database with 2,000 sample notifications, run:
+Loading Test Data (Optional)
+To immediately populate the system with 2000 sample notifications, run:
 
 bash
 docker exec -i bank-postgres psql -U postgres -d bank_notifications < seed-data.sql
-(Included in the repository root)
+After execution, log in as any user to see notification history, dashboard statistics, and preferences.
 
-##🧪 API Testing
-A ready‑to‑use Apifox/Postman collection is available in the file api-tests.json at the root of the project.
-Import it and run the following flow:
+API Testing
+The project includes a ready-to-import Apifox or Postman collection file: api-tests.json.
+Import it to run the following core endpoints with a single click:
 
-POST /api/auth/login – obtains JWT
+POST /api/auth/register – Register a new user
 
-GET /api/preferences – view current preferences
+POST /api/auth/login – Login (token is automatically saved)
 
-PUT /api/preferences – update preferences
+GET /api/preferences – Retrieve notification preferences
 
-GET /api/notifications/stats – dashboard statistics
+PUT /api/preferences – Update preferences (a pre-request script handles the channels format automatically)
 
-GET /api/notifications?page=0&size=10 – notification history
+GET /api/notifications/stats – Get notification statistics
 
-POST /api/notifications/{id}/retry – retry a failed notification
+GET /api/notifications?page=0&size=10 – View notification history
 
-POST /api/templates – (admin) create template
+POST /api/notifications/{id}/retry – Retry a failed notification
 
-POST /api/events – send a test banking event
+POST /api/templates – Create a template (admin token required)
 
+POST /api/events – Send a test Kafka event
 
-## 📂 Project Structure
+All requests include assertion scripts for automated regression testing.
 
-- **bank-notification-backend** – Maven parent project for backend
-  - **common/** – Shared entities, enums, constants, DTOs
-  - **api-gateway/** – Gateway: JWT filter + routes
-  - **customer-service/** – User service: authentication, preferences
-  - **notification-service/** – Event processing, rendering, retry
-  - **template-service/** – Template CRUD + Redis caching
-  - **channel-service/** – Sending strategies + circuit breaker
-  - **event-adapter/** – HTTP → Kafka adapter
-  - **docker-compose.yml** – All services orchestration
-  - **seed-data.sql** – 2000 test data generation script
-- **bank-notification-web** – React frontend project
-  - **src/**
-    - **api/** – Axios instance and API wrappers
-    - **store/** – Zustand state stores
-    - **pages/** – Page components
-    - **components/** – Common UI components
-    - **i18n/** – Multi-language messages
-    - **utils/** – Constants, date formatters
-  - **Dockerfile** – Frontend image build file
-  - **nginx/conf.d/default.conf** – Nginx reverse proxy config
-- **api-tests.json** – Apifox / Postman test collection
-- **README.md** – This document
-📜 License
-This project is created for educational purposes as part of the university course "Web Application User Interface Development" (Vladimir State University, 2026).
+Project Structure
+bank-notification-backend – Maven parent project for backend
 
-Developed by Ivan Ivanov, group PRI‑320
+common/ – Shared entities, enums, constants, DTOs
+
+api-gateway/ – Gateway: JWT filter + routes
+
+customer-service/ – User service: authentication, preferences
+
+notification-service/ – Event processing, rendering, retry
+
+template-service/ – Template CRUD + Redis caching
+
+channel-service/ – Sending strategies + circuit breaker
+
+event-adapter/ – HTTP → Kafka adapter
+
+docker-compose.yml – All services orchestration
+
+seed-data.sql – 2000 test data generation script
+
+bank-notification-web – React frontend project
+
+src/
+
+api/ – Axios instance and API wrappers
+
+store/ – Zustand state stores
+
+pages/ – Page components
+
+components/ – Common UI components
+
+i18n/ – Multi-language messages
+
+utils/ – Constants, date formatters
+
+Dockerfile – Frontend image build file
+
+nginx/conf.d/default.conf – Nginx reverse proxy config
+
+api-tests.json – Apifox / Postman test collection
+
+README.md – This document
+
+Important Notes
+All user passwords are stored as BCrypt hashes in the database. Test data uses the password 123456 with the hash $2a$10$.5G.GxQ3/x2upJ0oE.wopO80eOSN.FQgwLza3fcAO.oJ7o4sAJHKe.
+
+The JwtAuthFilter in the gateway is in formal authentication mode: only login/register endpoints are public; all other requests must carry a valid JWT; admin routes additionally check for the ADMIN role.
+
+Redis connection may occasionally fail due to container startup ordering, but all Redis-related business code includes fault-tolerance and fallback to prevent core functionality from being affected.
+
+If you modify backend code, run docker compose build --no-cache <service-name> to ensure the new code takes effect.
+
+License
+This project is an academic assignment for the "Web Application User Interface Development" course at Vladimir State University and is intended for educational purposes only.
+
+Student: Ivan Ivanov
 Supervisor: A.A. Shamyshev
-Vladimir State University, 2026
-
-text
+2026
