@@ -190,7 +190,7 @@ bank-notification-system/
 ├── api-tests.json ← Apifox/Postman test collection
 └── README.md ← This document
 
-text
+
 </details>
 
 ### Important Notes
