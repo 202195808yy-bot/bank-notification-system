@@ -196,6 +196,6 @@ If you modify backend code, run docker compose build --no-cache <service-name> t
 ### License
 This project is an academic assignment for the "Web Application User Interface Development" course at Vladimir State University and is intended for educational purposes only.
 
-Student: Ivan Ivanov
-Supervisor: A.A. Shamyshev
+Student: Янь Яо
+Supervisor: Евдокимов А.О.
 2026
