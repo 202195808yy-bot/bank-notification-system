@@ -1,17 +1,28 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './index.css';
+import { BrowserRouter } from 'react-router-dom';
+import { ConfigProvider } from 'antd';
+import ruRU from 'antd/locale/ru_RU';
+import zhCN from 'antd/locale/zh_CN';
+import I18nProvider from './i18n';
 import App from './App';
-import reportWebVitals from './reportWebVitals';
+import 'antd';
+import './index.css';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+const locale = localStorage.getItem('locale') || 'ru';
 
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
-reportWebVitals();
+root.render(
+    <BrowserRouter
+        future={{
+            v7_startTransition: true,
+            v7_relativeSplatPath: true,
+        }}
+    >
+        <I18nProvider>
+            <ConfigProvider locale={locale === 'ru' ? ruRU : zhCN}>
+                <App />
+            </ConfigProvider>
+        </I18nProvider>
+    </BrowserRouter>
+);
