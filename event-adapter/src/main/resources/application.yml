@@ -1,0 +1,16 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: event-adapter
+
+  kafka:
+    bootstrap-servers: ${KAFKA_HOST:kafka}:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+internal:
+  api:
+    token: ${INTERNAL_API_TOKEN:ZGV2LWludGVybmFsLWFwaS10b2tlbi0yMDI2}

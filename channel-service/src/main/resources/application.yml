@@ -1,0 +1,47 @@
+
+server:
+  port: 8084
+
+spring:
+  application:
+    name: channel-service
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:postgres}:5432/bank_notifications
+    username: ${DB_USER:postgres}
+    password: ${DB_PASS:123456}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+  kafka:
+    bootstrap-servers: ${KAFKA_HOST:kafka}:9092
+    consumer:
+      group-id: channel-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      smsSender:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+      emailSender:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+      pushSender:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+
+internal:
+  api:
+    token: ${INTERNAL_API_TOKEN:ZGV2LWludGVybmFsLWFwaS10b2tlbi0yMDI2}

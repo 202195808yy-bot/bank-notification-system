@@ -1,0 +1,295 @@
+# 服务间令牌：改这一行即可整体换掉。各容器通过 INTERNAL_API_TOKEN 注入；
+# application.yml 里的 internal.api.token 默认值只在容器外（IDEA / mvn spring-boot:run）开发时生效，
+# 两边不一致会让内部接口一律返回 401。
+x-internal-token: &internal-token "ZGV2LWludGVybmFsLWFwaS10b2tlbi0yMDI2"
+
+services:
+  # ===== 基础设施层 =====
+  postgres:
+    image: postgres:16
+    container_name: bank-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: bank_notifications
+    ports:
+      # 绑定 127.0.0.1：本机 IDEA/psql 照常可连，局域网与其他主机不可达（PRD-01）
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - bank-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bank_notifications"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: bank-redis
+    ports:
+      - "127.0.0.1:16379:6379"
+    # bind 0.0.0.0 + protected-mode no 是容器网络内互访所必需的，
+    # 对外收敛靠上面的回环绑定，而不是改这两项（改了会打断各服务的 Redis 缓存）
+    command: redis-server --protected-mode no --bind 0.0.0.0
+    networks:
+      - bank-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - bank-net
+    healthcheck:
+      test: ["CMD-SHELL", "echo srvr | nc localhost 2181 | grep Mode"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    ports:
+      - "127.0.0.1:9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka:29092,CONTROLLER://kafka:29093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CREATE_TOPICS: "bank.events:1:1,notification.send.command:1:1,notification.status:1:1"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    networks:
+      - bank-net
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+    restart: unless-stopped
+
+  # ===== 微服务层 =====
+  # 说明：所有后端服务通过 TCP 端口探测判活（服务未引入 actuator，故不再依赖 /actuator/health）。
+  # 8081~8085 只绑定回环地址；容器网络内按服务名互访不受影响。
+  customer-service:
+    build: ./customer-service
+    container_name: customer-service
+    ports:
+      - "127.0.0.1:8081:8081"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: bank_notifications
+      DB_USER: postgres
+      DB_PASS: 123456
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: bXktc2VjcmV0LWtleS1mb3ItYmFuay1ub3RpZmljYXRpb24=
+      INTERNAL_API_TOKEN: *internal-token
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bank-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8081"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  notification-service:
+    build: ./notification-service
+    container_name: notification-service
+    ports:
+      - "127.0.0.1:8082:8082"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: bank_notifications
+      DB_USER: postgres
+      DB_PASS: 123456
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      INTERNAL_API_TOKEN: *internal-token
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - bank-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8082"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  template-service:
+    build: ./template-service
+    container_name: template-service
+    ports:
+      - "127.0.0.1:8083:8083"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: bank_notifications
+      DB_USER: postgres
+      DB_PASS: 123456
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SPRING_DATA_REDIS_HOST: redis
+      INTERNAL_API_TOKEN: *internal-token
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - bank-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8083"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  channel-service:
+    build: ./channel-service
+    container_name: channel-service
+    ports:
+      - "127.0.0.1:8084:8084"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: bank_notifications
+      DB_USER: postgres
+      DB_PASS: 123456
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      INTERNAL_API_TOKEN: *internal-token
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - bank-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8084"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  event-adapter:
+    build: ./event-adapter
+    container_name: event-adapter
+    ports:
+      - "127.0.0.1:8085:8085"
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      INTERNAL_API_TOKEN: *internal-token
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - bank-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8085"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      JWT_SECRET: bXktc2VjcmV0LWtleS1mb3ItYmFuay1ub3RpZmljYXRpb24=
+      INTERNAL_API_TOKEN: *internal-token
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      customer-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+      template-service:
+        condition: service_healthy
+      channel-service:
+        condition: service_healthy
+    networks:
+      - bank-net
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8080"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
+  # ===== 前端层 =====
+  frontend:
+    build:
+      context: ../bank-notification-web
+      dockerfile: Dockerfile
+    container_name: bank-frontend
+    ports:
+      - "1111:80"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    networks:
+      - bank-net
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+
+networks:
+  bank-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
