@@ -10,6 +10,16 @@
 
 # production
 /build
+/dist
+
+# ide / local tooling
+/.idea
+/.fastRequest
+*.iml
+
+# local build logs and archives
+*.log
+*.zip
 
 # misc
 .DS_Store

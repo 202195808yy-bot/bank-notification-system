@@ -1,19 +1,22 @@
 # 构建阶段
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# 复制 package.json 和 package-lock.json
-COPY package*.json ./
+# 通过 corepack 启用 pnpm（Vite 8 要求 Node 20+）
+RUN corepack enable && corepack prepare pnpm@9.0.0 --activate
+
+# 复制 package.json 和 lock 文件
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
 # 安装依赖
-RUN npm ci --only=production
+RUN pnpm install --frozen-lockfile=false
 
 # 复制源代码
 COPY . .
 
 # 构建应用
-RUN npm run build
+RUN pnpm build
 
 # 生产阶段
 FROM nginx:alpine
@@ -22,7 +25,7 @@ FROM nginx:alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # 从构建阶段复制构建产物
-COPY --from=builder /app/build /usr/share/nginx/html
+COPY --from=builder /app/dist /usr/share/nginx/html
 
 # 暴露端口
 EXPOSE 80
