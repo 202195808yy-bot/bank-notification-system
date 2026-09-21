@@ -1,8 +1,6 @@
 package com.bank.notification.repository;
 
 import com.bank.common.entity.Notification;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
@@ -12,8 +10,6 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long>, JpaSpecificationExecutor<Notification> {
-    Page<Notification> findByCustomerId(Long customerId, Pageable pageable);
-
     @Query("SELECT n.status, COUNT(n) FROM Notification n WHERE n.customerId = :customerId GROUP BY n.status")
     List<Object[]> countByCustomerIdGroupByStatus(@Param("customerId") Long customerId);
 
@@ -21,6 +17,8 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     List<Object[]> countAllGroupByStatus();
 
     long countByEventId(String eventId);
+
+    boolean existsByEventIdAndCustomerId(String eventId, Long customerId);
 
     /**
      * 未读数只统计真正投递过的通知。

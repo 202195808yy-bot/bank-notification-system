@@ -13,5 +13,7 @@ public class SendCommand {
     private String channel;
     private String recipient;   // 手机号/邮箱/推送令牌
     private String content;
+    /** 已渲染的标题，仅邮件通道用作主题；其它通道忽略 */
+    private String subject;
     private Long templateId;
 }

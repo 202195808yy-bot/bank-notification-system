@@ -24,8 +24,13 @@ public class SendCommandConsumer {
         );
     }
 
-    @KafkaListener(topics = AppConstants.TOPIC_SEND_COMMAND, groupId = "channel-service")
+    @KafkaListener(topics = AppConstants.TOPIC_SEND_COMMAND,
+            groupId = "channel-service",
+            containerFactory = "sendCommandListenerContainerFactory")
     public void onCommand(SendCommand command) {
+        if (command == null) {
+            throw new IllegalStateException("投递命令反序列化失败，转入 " + AppConstants.TOPIC_SEND_COMMAND_DLT);
+        }
         ChannelSender sender = senderMap.get(command.getChannel().toLowerCase());
         if (sender != null) {
             sender.send(command);

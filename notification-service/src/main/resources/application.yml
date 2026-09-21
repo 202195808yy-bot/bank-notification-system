@@ -20,15 +20,29 @@ spring:
     consumer:
       group-id: notification-service
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      # PRD-42：裸 JsonDeserializer 解析失败会在进入业务代码之前抛 SerializationException，
+      # 容器跳过不了这条记录，offset 永不提交 —— 一条脏数据就能让整个分区卡死。
+      # ErrorHandlingDeserializer 把失败降级为「值为 null + 异常写进消息头」，
+      # 再由 KafkaErrorHandlingConfig 的 DefaultErrorHandler 投进 <topic>.DLT。
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       properties:
-        spring.json.trusted.packages: "*"
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        # 原来这里写的是 "*"：任何反序列化目标类型都放行。生产端只会发 com.bank.common.dto 下的三个 DTO，
+        # 收窄后消息头里的 __TypeId__ 指向别的包就拒绝。
+        # 默认负载类型（BankEvent / NotificationStatus）不在这里配：两个主题类型不同，
+        # 只能按主题在 KafkaErrorHandlingConfig 构造 ConsumerFactory 时注入。
+        spring.json.trusted.packages: com.bank.common.dto
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-      properties:
-        spring.json.trusted.packages: "*"
+      # 这里原先还有一行 spring.json.trusted.packages: "*" —— 它是反序列化端才生效的属性，
+      # 配在生产者段里什么都不做，只会让 Kafka 打一条 "supplied but are not used" 警告。
 
 internal:
   api:
     token: ${INTERNAL_API_TOKEN:ZGV2LWludGVybmFsLWFwaS10b2tlbi0yMDI2}
+
+app:
+  # 免打扰时段的兜底时区：客户档案里没填 timezone 时按这个钟点判定。
+  # 容器自身没设 TZ（＝UTC），所以绝不能再依赖 LocalTime.now()。
+  business-zone: ${APP_BUSINESS_ZONE:Europe/Moscow}

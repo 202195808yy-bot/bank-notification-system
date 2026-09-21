@@ -38,6 +38,8 @@ public class AuthService {
         customer.setPhone(request.getPhone());
         customer.setPassword(passwordEncoder.encode(request.getPassword()));
         customer.setRole(AppConstants.DEFAULT_ROLE);
+        // 注册时把浏览器报告的时区存下来（前端采集 Intl 的结果）：免打扰时段要按客户的钟点判定
+        customer.setTimezone(com.bank.customer.util.Timezones.normalize(request.getTimezone()));
         return customerRepository.save(customer);
     }
 

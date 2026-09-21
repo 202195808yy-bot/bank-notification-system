@@ -7,6 +7,7 @@ import com.bank.common.dto.SendCommand;
 import com.bank.common.entity.SentLog;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -18,10 +19,14 @@ public class PushSender implements ChannelSender {
     private final SentLogRepository sentLogRepository;
     private final StatusProducer statusProducer;
 
+    /** 真实 FCM 未接（要 Google 项目凭据）。失败率可配，见 PRD-30 */
+    @Value("${mock.failure-rate:0.1}")
+    private double failureRate;
+
     @Override
     @CircuitBreaker(name = "pushSender", fallbackMethod = "sendFallback")
     public void send(SendCommand command) {
-        if (Math.random() > 0.9) {
+        if (failureRate > 0 && Math.random() < failureRate) {
             throw new RuntimeException("推送发送失败");
         }
         String response = "Push delivered";

@@ -14,4 +14,6 @@ public class RegisterRequest {
     private String phone;
     @NotBlank(message = "Password is required")
     private String password;
+    /** 浏览器报告的 IANA 时区（Intl.DateTimeFormat().resolvedOptions().timeZone）；可不传，免打扰时段按它判定 */
+    private String timezone;
 }

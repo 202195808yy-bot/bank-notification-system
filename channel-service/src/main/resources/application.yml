@@ -14,14 +14,36 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USER:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
   kafka:
     bootstrap-servers: ${KAFKA_HOST:kafka}:9092
     consumer:
       group-id: channel-service
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      # PRD-42：裸 JsonDeserializer 解析失败会在进入业务代码之前抛 SerializationException，
+      # 容器无法跳过这条记录，offset 永不提交 —— 一条脏数据就能让整个分区卡死。
+      # ErrorHandlingDeserializer 把失败降级为「值为 null + 异常写进消息头」，
+      # 再由 KafkaErrorHandlingConfig 的 DefaultErrorHandler 投进 notification.send.command.DLT。
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       properties:
-        spring.json.trusted.packages: "*"
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        # 原来这里写的是 "*"：任何反序列化目标类型都放行。生产端只会发 com.bank.common.dto 下的 DTO，
+        # 收窄之后消息头里的 __TypeId__ 指向别的包就拒绝，避免被投喂任意类。
+        # 默认负载类型（SendCommand）不在这里配，它按主题在 KafkaErrorHandlingConfig 里注入。
+        spring.json.trusted.packages: com.bank.common.dto
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
@@ -45,3 +67,16 @@ resilience4j:
 internal:
   api:
     token: ${INTERNAL_API_TOKEN:ZGV2LWludGVybmFsLWFwaS10b2tlbi0yMDI2}
+
+# 模拟通道的随机失败率（PRD-30）。默认保持 0.1 以兼容演示；
+# 需要可信的成功率数字时设 MOCK_FAILURE_RATE=0。
+mock:
+  failure-rate: ${MOCK_FAILURE_RATE:0.1}
+
+mail:
+  # 真正的开关是这一条。⚠️ 不要用"配了 host 就真发"来判断：Boot 3 的
+  # MailSenderAutoConfiguration 条件是 @ConditionalOnProperty(prefix="spring.mail", value="host")，
+  # 它只把字符串 "false" 当作不匹配，**空值照样会创建 JavaMailSender**。
+  # 所以 host 未配时 bean 依然存在但发不出去 —— 必须靠 real-send 显式打开。
+  real-send: ${MAIL_ENABLED:false}
+  from: ${MAIL_FROM:${MAIL_USER:}}

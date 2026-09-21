@@ -204,6 +204,16 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       INTERNAL_API_TOKEN: *internal-token
       SPRING_PROFILES_ACTIVE: docker
+      # 邮件通道默认仍是模拟。要真发：在 .env 里填 MAIL_HOST/MAIL_USER/MAIL_PASSWORD（授权码）
+      # 并把 MAIL_ENABLED 设 true；凭据不进仓库，理由同 PRD-27。
+      MAIL_ENABLED: ${MAIL_ENABLED:-false}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      # 演示保留 10% 随机失败；要让仪表盘的成功率数字可信就设 MOCK_FAILURE_RATE=0
+      MOCK_FAILURE_RATE: ${MOCK_FAILURE_RATE:-0.1}
     depends_on:
       postgres:
         condition: service_healthy

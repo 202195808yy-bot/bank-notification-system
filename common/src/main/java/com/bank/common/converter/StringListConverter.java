@@ -16,9 +16,11 @@ public class StringListConverter implements AttributeConverter<List<String>, Str
 
     @Override
     public String convertToDatabaseColumn(List<String> attribute) {
-        if (attribute == null || attribute.isEmpty()) {
+        if (attribute == null) {
             return null;
         }
+        // 空列表必须写成 "[]"：channels 列是 NOT NULL，返回 null 会让「清空全部渠道」的偏好
+        // 直接 500（并且读取端本来就把 null 还原成空列表，两侧口径要一致）。
         try {
             return objectMapper.writeValueAsString(attribute);
         } catch (JsonProcessingException e) {

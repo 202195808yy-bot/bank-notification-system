@@ -19,8 +19,13 @@ public class StatusConsumer {
 
     private final NotificationRepository notificationRepository;
 
-    @KafkaListener(topics = AppConstants.TOPIC_STATUS, groupId = "notification-service")
+    @KafkaListener(topics = AppConstants.TOPIC_STATUS,
+            groupId = "notification-service",
+            containerFactory = "statusListenerContainerFactory")
     public void onStatus(NotificationStatus status) {
+        if (status == null) {
+            throw new IllegalStateException("投递回调反序列化失败，转入 " + AppConstants.TOPIC_STATUS_DLT);
+        }
         final SendStatus sendStatus;
         try {
             sendStatus = SendStatus.valueOf(status.getStatus());

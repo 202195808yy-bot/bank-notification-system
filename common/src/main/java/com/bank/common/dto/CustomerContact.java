@@ -12,6 +12,10 @@ public class CustomerContact {
     private String email;
     private String phone;
     private String pushToken;
+    /** 客户选择的正文语言；null 表示未设置，由派发端回退到 AppConstants.DEFAULT_LOCALE */
+    private String locale;
+    /** 客户所在时区（IANA 名）；null 表示未知，由派发端回退到 app.business-zone */
+    private String timezone;
 
     /**
      * 取该渠道实际可用的收件地址；缺少对应字段时返回 null，由调用方判定为无法投递。
