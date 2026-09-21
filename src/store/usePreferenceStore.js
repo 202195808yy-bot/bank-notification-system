@@ -4,6 +4,8 @@ import { getPreferences, updatePreferences as updatePrefsApi } from '../api/cust
 const usePreferenceStore = create((set, get) => ({
   prefs: [],
   loading: false,
+  /** 最近一次保存后的「渠道缺收件地址」警告（PRD-40）。只在内存里，刷新即清 */
+  warnings: [],
 
   fetchPreferences: async () => {
     set({ loading: true });
@@ -31,9 +33,14 @@ const usePreferenceStore = create((set, get) => ({
     });
     const formatted = Array.from(map.values());
 
-    await updatePrefsApi(formatted);
+    const result = await updatePrefsApi(formatted);
+    const warnings = Array.isArray(result?.warnings) ? result.warnings : [];
     await get().fetchPreferences();
+    set({ warnings });
+    return warnings;
   },
+
+  clearWarnings: () => set({ warnings: [] }),
 }));
 
 export default usePreferenceStore;

@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { BellOutlined, MailOutlined, LockOutlined, EyeOutlined, EyeTwoTone } from '@ant-design/icons';
 import { useIntl } from 'react-intl';
 import useAuthStore from '../store/useAuthStore';
+import LocaleSwitcher from '../components/LocaleSwitcher';
 
 export default function LoginPage() {
   const intl = useIntl();
@@ -39,7 +40,11 @@ export default function LoginPage() {
       justifyContent: 'center',
       background: '#f5f5f5',
       padding: '20px',
+      position: 'relative',
     }}>
+      <div style={{ position: 'absolute', top: '20px', right: '24px' }}>
+        <LocaleSwitcher />
+      </div>
       <Card 
         style={{ 
           width: '100%', 

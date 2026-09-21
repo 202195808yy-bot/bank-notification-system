@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import axios from '../api/axiosInstance';
+import { isSoundEnabled, setSoundEnabled } from '../utils/notifySound';
 
 const useNotificationStore = create((set, get) => ({
   notifications: [],
@@ -51,6 +52,14 @@ const useNotificationStore = create((set, get) => ({
   latest: [],
   latestLoading: false,
   unreadCount: 0,
+  soundEnabled: isSoundEnabled(),
+
+  toggleSound: () => {
+    const next = !get().soundEnabled;
+    setSoundEnabled(next);
+    set({ soundEnabled: next });
+    return next;
+  },
 
   fetchUnreadCount: async () => {
     try {
@@ -64,17 +73,23 @@ const useNotificationStore = create((set, get) => ({
   // 下拉面板只列真正投递过的通知；SKIPPED / FAILED_VALIDATION 属于运维可见信息，留在历史页看。
   // mine=true 是必须的：管理员在列表端点上默认能看全行，否则铃铛会列出别人的通知，
   // 点已读时被归属校验拒绝成 403。
-  fetchLatest: async () => {
-    set({ latestLoading: true });
+  // silent=true 给轮询用：不置 latestLoading，否则面板每 15 秒闪一次骨架。
+  // 返回值是这一页里最大的通知 id（请求失败返回 null），调用方拿它判断"有没有新消息"。
+  fetchLatest: async ({ silent = false } = {}) => {
+    if (!silent) set({ latestLoading: true });
+    let content;
     try {
       const { data } = await axios.get('/notifications', {
         params: { page: 0, size: 5, statuses: 'PENDING,SENT,FAILED', mine: true },
       });
-      set({ latest: data.content || [], latestLoading: false });
+      content = data.content || [];
     } catch (e) {
-      set({ latestLoading: false });
+      if (!silent) set({ latestLoading: false });
+      return null;
     }
+    set({ latest: content, latestLoading: false });
     get().fetchUnreadCount();
+    return content.reduce((max, n) => Math.max(max, n.id ?? 0), 0);
   },
 
   markRead: async (id) => {

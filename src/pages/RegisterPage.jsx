@@ -3,6 +3,7 @@ import { Form, Input, Button, Alert, Typography } from 'antd';
 import { Link, useNavigate } from 'react-router-dom';
 import { useIntl } from 'react-intl';
 import axios from '../api/axiosInstance';
+import LocaleSwitcher from '../components/LocaleSwitcher';
 
 const { Title } = Typography;
 
@@ -19,6 +20,8 @@ export default function RegisterPage() {
       email: values.email?.trim() || '',
       phone: values.phone?.trim() || '',
       password: values.password || '',
+      // 免打扰时段要按客户自己的钟点判定；注册时把浏览器报告的 IANA 时区一并存下来
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     };
 
     if (!payload.password) {
@@ -38,7 +41,10 @@ export default function RegisterPage() {
   };
 
   return (
-      <div style={{ maxWidth: 400, margin: '200px auto', padding: 24 }}>
+      <div style={{ maxWidth: 400, margin: '200px auto', padding: 24, position: 'relative' }}>
+        <div style={{ position: 'absolute', top: -80, right: 0 }}>
+          <LocaleSwitcher />
+        </div>
         <Title level={3} style={{ textAlign: 'center' }}>
           {intl.formatMessage({ id: 'register.title' })}
         </Title>

@@ -1,9 +1,12 @@
 import { useEffect } from 'react';
-import { BellOutlined, CheckCircleOutlined, ClockCircleOutlined, WarningOutlined, XOutlined } from '@ant-design/icons';
-import { message } from 'antd';
+import { BellOutlined, CheckCircleOutlined, ClockCircleOutlined, WarningOutlined, XOutlined, SoundOutlined, MutedOutlined } from '@ant-design/icons';
+import { message, Tooltip } from 'antd';
 import { useIntl } from 'react-intl';
 import { useNavigate } from 'react-router-dom';
 import useNotificationStore from '../../store/useNotificationStore';
+import { playNotifySound } from '../../utils/notifySound';
+import { parseServerInstant } from '../../utils/formatters';
+import { CHANNEL_COLORS } from '../../utils/constants';
 import { enumLabel } from '../../utils/labels';
 
 const STATUS_STYLE = {
@@ -13,8 +16,8 @@ const STATUS_STYLE = {
 };
 
 const formatRelative = (intl, timestamp) => {
-  if (!timestamp) return '';
-  const date = new Date(timestamp);
+  const date = parseServerInstant(timestamp);
+  if (!date) return '';
   const minutes = Math.floor((Date.now() - date.getTime()) / 60000);
   if (minutes < 1) return intl.formatMessage({ id: 'notification.justNow' });
   if (minutes < 60) return intl.formatMessage({ id: 'notification.minutesAgo' }, { count: minutes });
@@ -28,7 +31,7 @@ const formatRelative = (intl, timestamp) => {
 export default function NotificationDropdown({ onClose }) {
   const intl = useIntl();
   const navigate = useNavigate();
-  const { latest: notifications, latestLoading: loading, unreadCount, fetchLatest, markRead, markAllRead } =
+  const { latest: notifications, latestLoading: loading, unreadCount, soundEnabled, toggleSound, fetchLatest, markRead, markAllRead } =
     useNotificationStore();
 
   useEffect(() => {
@@ -48,6 +51,11 @@ export default function NotificationDropdown({ onClose }) {
     }
     onClose?.();
     navigate('/notifications', { state: { focusNotification: opened } });
+  };
+
+  const handleToggleSound = () => {
+    // 打开时立刻响一声：既让用户确认开关生效，也顺带满足浏览器的自动播放手势要求
+    if (toggleSound()) playNotifySound();
   };
 
   const handleMarkAllRead = async () => {
@@ -110,6 +118,26 @@ export default function NotificationDropdown({ onClose }) {
           alignItems: 'center',
           gap: '8px',
         }}>
+          <Tooltip title={intl.formatMessage({ id: soundEnabled ? 'notification.soundOn' : 'notification.soundOff' })}>
+            <button
+              onClick={handleToggleSound}
+              aria-label={intl.formatMessage({ id: soundEnabled ? 'notification.soundOn' : 'notification.soundOff' })}
+              style={{
+                fontSize: '14px',
+                color: soundEnabled ? '#1677ff' : '#9ca3af',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '4px 6px',
+                borderRadius: '6px',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+            >
+              {soundEnabled ? <SoundOutlined /> : <MutedOutlined />}
+            </button>
+          </Tooltip>
           <button
             onClick={handleMarkAllRead}
             style={{
@@ -230,6 +258,19 @@ export default function NotificationDropdown({ onClose }) {
                         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
                       }}>
                         {enumLabel(intl, 'eventType', notification.eventType)}
+                        {/* 一个事件按渠道各落一行（(event_id, customer_id, channel) 唯一），
+                            不标渠道时两条看起来像重复推送 */}
+                        <span style={{
+                          marginLeft: '8px',
+                          fontSize: '11px',
+                          fontWeight: 400,
+                          padding: '1px 6px',
+                          borderRadius: '6px',
+                          background: CHANNEL_COLORS[notification.channel]?.bg || '#f1f5f9',
+                          color: '#475569',
+                        }}>
+                          {enumLabel(intl, 'channel', notification.channel)}
+                        </span>
                       </div>
                       <div style={{
                         fontSize: '12px',

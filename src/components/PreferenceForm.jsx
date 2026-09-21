@@ -8,9 +8,29 @@ import dayjs from 'dayjs';
 
 const { Option } = Select;
 
+/**
+ * 免打扰时段要么两端都填、要么都不填，且起止不能相同：
+ * 只填一端时后端按「未设置」处理，start==end 则任何时刻都判不出「正在免打扰」——
+ * 两种都是界面显示设好了、实际永远不生效（后端另有 QUIET_PERIOD_* 400 兜底）。
+ */
+const validateQuietPair = (start, end, intl) => {
+    if (!start && !end) return Promise.resolve();
+    if (!start || !end) {
+        return Promise.reject(new Error(intl.formatMessage({ id: 'preferences.quietPeriodBothOrNone' })));
+    }
+    if (start.isSame(end, 'second')) {
+        return Promise.reject(new Error(intl.formatMessage({ id: 'preferences.quietPeriodSameTime' })));
+    }
+    return Promise.resolve();
+};
+
 export default function PreferenceForm({ initialValues, onSave, form, onValuesChange }) {
     const intl = useIntl();
     const [submitting, setSubmitting] = React.useState(false);
+
+    // 清除按钮只在至少填了一端时出现；useWatch 保证改动即时反映
+    const quietStartField = Form.useWatch('quietStart', form);
+    const quietEndField = Form.useWatch('quietEnd', form);
 
     const toDayjs = (value) => {
         if (!value) return null;
@@ -123,12 +143,39 @@ export default function PreferenceForm({ initialValues, onSave, form, onValuesCh
                     label={intl.formatMessage({ id: 'preferences.quietStart' })}
                     name="quietStart"
                     style={{ marginBottom: '12px' }}
+                    dependencies={['quietEnd']}
+                    rules={[({ getFieldValue }) => ({
+                        validator: (_, value) =>
+                            validateQuietPair(value, getFieldValue('quietEnd'), intl),
+                    })]}
                 >
                     <TimePicker format="HH:mm:ss" style={{ width: '100%' }} />
                 </Form.Item>
-                <Form.Item label={intl.formatMessage({ id: 'preferences.quietEnd' })} name="quietEnd">
+                <Form.Item
+                    label={intl.formatMessage({ id: 'preferences.quietEnd' })}
+                    name="quietEnd"
+                    dependencies={['quietStart']}
+                    rules={[({ getFieldValue }) => ({
+                        validator: (_, value) =>
+                            validateQuietPair(getFieldValue('quietStart'), value, intl),
+                    })]}
+                >
                     <TimePicker format="HH:mm:ss" style={{ width: '100%' }} />
                 </Form.Item>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--color-text-tertiary)', flex: 1 }}>
+                        {intl.formatMessage({ id: 'preferences.quietPeriodHelp' })}
+                    </span>
+                    {(quietStartField || quietEndField) && (
+                        <Button
+                            size="small"
+                            type="link"
+                            onClick={() => form.setFieldsValue({ quietStart: null, quietEnd: null })}
+                        >
+                            {intl.formatMessage({ id: 'preferences.quietPeriodClear' })}
+                        </Button>
+                    )}
+                </div>
             </div>
 
             <Form.Item

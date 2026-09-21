@@ -8,6 +8,7 @@ import useAuthStore from '../store/useAuthStore';
 import { EVENT_TYPES, CHANNELS, STATUS_MAP, STATUS_COLOR, EVENT_TYPE_COLORS, EVENT_TYPE_ICONS, CHANNEL_COLORS, STATUS_DETAILS, MODERN_THEME } from '../utils/constants';
 import { formatDateTime } from '../utils/formatters';
 import { enumLabel } from '../utils/labels';
+import { listCustomers } from '../api/customerApi';
 import axios from '../api/axiosInstance';
 
 const { Option } = Select;
@@ -111,6 +112,24 @@ export default function NotificationHistoryPage() {
     // 详情弹窗：以前「查看」按钮没有 onClick，是个死操作
     const [detail, setDetail] = useState(null);
 
+    // customerId → 可读标识。历史页此前只显示裸 #id，管理员既不知道"这是谁"，
+    // 也看不出某行是否指向已删除的客户（PRD-33 的孤儿行）。
+    const [customerDirectory, setCustomerDirectory] = useState({});
+
+    useEffect(() => {
+        if (!isAdmin) return undefined;
+        let cancelled = false;
+        listCustomers()
+            .then((data) => {
+                if (cancelled) return;
+                setCustomerDirectory(Object.fromEntries((data || []).map((c) => [c.id, c])));
+            })
+            .catch(() => {
+                if (!cancelled) setCustomerDirectory({});
+            });
+        return () => { cancelled = true; };
+    }, [isAdmin]);
+
     // 铃铛下拉点某条通知时会把记录经路由 state 传过来，落地后立刻清掉，避免刷新又弹出
     useEffect(() => {
         const focused = location.state?.focusNotification;
@@ -168,6 +187,15 @@ export default function NotificationHistoryPage() {
         return acc;
     }, {});
 
+    const customerIdentity = (id) => {
+        const found = customerDirectory[id];
+        return {
+            known: !!found,
+            primary: found ? (found.name || found.email || `#${id}`) : `#${id}`,
+            secondary: found?.email || '',
+        };
+    };
+
     const columns = [
         {
             title: intl.formatMessage({ id: 'history.id' }),
@@ -178,10 +206,35 @@ export default function NotificationHistoryPage() {
         {
             title: intl.formatMessage({ id: 'history.customer' }),
             dataIndex: 'customerId',
-            width: 90,
-            // 管理员看的是全行记录，客户编号必须可见；普通用户只会被过滤出自己的数据
+            width: 180,
+            // 管理员看的是全行记录，客户必须可识别；普通用户只会被过滤出自己的数据
             hidden: !isAdmin,
-            render: (v) => <Text strong style={{ color: MODERN_THEME.colors.textSecondary }}>#{v}</Text>,
+            render: (v) => {
+                const who = customerIdentity(v);
+                if (!who.known) {
+                    // notifications 对 customers 没有外键，删客户会留下这种孤儿行
+                    return (
+                        <Space size={6}>
+                            <Text strong style={{ color: MODERN_THEME.colors.textSecondary }}>{who.primary}</Text>
+                            <Tooltip title={intl.formatMessage({ id: 'history.customerDeletedTip' })}>
+                                <Tag color="orange" style={{ margin: 0 }}>
+                                    {intl.formatMessage({ id: 'history.customerDeleted' })}
+                                </Tag>
+                            </Tooltip>
+                        </Space>
+                    );
+                }
+                return (
+                    <Space direction="vertical" size={0}>
+                        <Text strong style={{ color: MODERN_THEME.colors.textPrimary }}>{who.primary}</Text>
+                        {who.secondary && (
+                            <Text style={{ color: MODERN_THEME.colors.textTertiary, fontSize: '11px' }}>
+                                {who.secondary}
+                            </Text>
+                        )}
+                    </Space>
+                );
+            },
         },
         {
             title: intl.formatMessage({ id: 'history.eventType' }),
@@ -265,7 +318,7 @@ export default function NotificationHistoryPage() {
                 <Space size="small">
                     <ClockCircleOutlined style={{ color: MODERN_THEME.colors.textSecondary }} />
                     <Text style={{ color: MODERN_THEME.colors.textSecondary, fontSize: '12px' }}>
-                        {formatDateTime(v)}
+                        {formatDateTime(v, intl.locale)}
                     </Text>
                 </Space>
             ),
@@ -499,7 +552,7 @@ export default function NotificationHistoryPage() {
                                     fetchNotifications(page - 1, size);
                                 },
                             }}
-                            scroll={{ x: 1430 }}
+                            scroll={{ x: 1520 }}
                             style={{ borderRadius: MODERN_THEME.borderRadius.card }}
                             rowClassName={(record, index) => 
                                 index % 2 === 0 ? 'even-row' : 'odd-row'
@@ -523,7 +576,19 @@ export default function NotificationHistoryPage() {
                         </Descriptions.Item>
                         {isAdmin && (
                             <Descriptions.Item label={intl.formatMessage({ id: 'history.customer' })}>
-                                #{detail.customerId}
+                                <Space size={6}>
+                                    {customerIdentity(detail.customerId).primary}
+                                    {customerIdentity(detail.customerId).secondary && (
+                                        <Text style={{ color: MODERN_THEME.colors.textTertiary, fontSize: '12px' }}>
+                                            {customerIdentity(detail.customerId).secondary}
+                                        </Text>
+                                    )}
+                                    {!customerIdentity(detail.customerId).known && (
+                                        <Tag color="orange" style={{ margin: 0 }}>
+                                            {intl.formatMessage({ id: 'history.customerDeleted' })}
+                                        </Tag>
+                                    )}
+                                </Space>
                             </Descriptions.Item>
                         )}
                         <Descriptions.Item label={intl.formatMessage({ id: 'history.eventType' })}>
@@ -552,11 +617,11 @@ export default function NotificationHistoryPage() {
                             {detail.retryCount ?? 0}
                         </Descriptions.Item>
                         <Descriptions.Item label={intl.formatMessage({ id: 'history.time' })}>
-                            {formatDateTime(detail.createdAt)}
+                            {formatDateTime(detail.createdAt, intl.locale)}
                         </Descriptions.Item>
                         {detail.updatedAt && (
                             <Descriptions.Item label={intl.formatMessage({ id: 'history.updatedAt' })}>
-                                {formatDateTime(detail.updatedAt)}
+                                {formatDateTime(detail.updatedAt, intl.locale)}
                             </Descriptions.Item>
                         )}
                         <Descriptions.Item label={intl.formatMessage({ id: 'history.content' })}>

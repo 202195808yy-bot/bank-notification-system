@@ -14,6 +14,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useIntl } from 'react-intl';
 import useAuthStore from '../../store/useAuthStore';
 import useNotificationStore from '../../store/useNotificationStore';
+import { playNotifySound } from '../../utils/notifySound';
 
 const { Header: AntHeader } = Layout;
 
@@ -23,10 +24,14 @@ const NAV_ITEMS = [
   { key: '/preferences', id: 'menu.preferences' },
 ];
 
+/** 后端没有 WebSocket/SSE，红点只能靠轮询；15 秒是"看得出实时"和"不给网关白刷"的折中 */
+const POLL_INTERVAL_MS = 15000;
+
 export default function Header() {
     const { user, logout } = useAuthStore();
     const unreadCount = useNotificationStore((state) => state.unreadCount);
     const fetchUnreadCount = useNotificationStore((state) => state.fetchUnreadCount);
+    const fetchLatest = useNotificationStore((state) => state.fetchLatest);
     const navigate = useNavigate();
     const location = useLocation();
     const intl = useIntl();
@@ -35,9 +40,35 @@ export default function Header() {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isNotificationOpen, setIsNotificationOpen] = useState(false);
 
+    // 以前这里只有一次 fetchUnreadCount()：Header 常驻在 Layout 里、切页面不会重挂载，
+    // 所以用户停在界面上时红点永远不动，只有点开铃铛才刷新。
     useEffect(() => {
-        fetchUnreadCount();
-    }, [fetchUnreadCount]);
+        let newestSeenId = null;
+
+        const poll = async () => {
+            const newestId = await fetchLatest({ silent: true });
+            if (newestId === null) return;
+            if (newestSeenId === null) {
+                newestSeenId = newestId;          // 首帧只建立基线，不给历史消息补响
+                return;
+            }
+            if (newestId > newestSeenId) {
+                newestSeenId = newestId;
+                playNotifySound();
+            }
+        };
+
+        poll();
+        const timer = setInterval(poll, POLL_INTERVAL_MS);
+        const onVisible = () => {
+            if (document.visibilityState === 'visible') poll();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => {
+            clearInterval(timer);
+            document.removeEventListener('visibilitychange', onVisible);
+        };
+    }, [fetchLatest]);
 
     useEffect(() => {
         const checkMobile = () => {

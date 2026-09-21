@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Card, Button, Form, Input, Select, InputNumber, Typography, 
   Divider, Tag, Empty, message, Space, Progress, Alert, Row, Col,
@@ -12,6 +12,8 @@ import {
 } from '@ant-design/icons';
 import { useIntl } from 'react-intl';
 import axios from '../api/axiosInstance';
+import { listCustomers, getEventReach } from '../api/customerApi';
+import { getTemplates } from '../api/templateApi';
 import { EVENT_TYPE_COLORS } from '../utils/constants';
 
 const { Title, Text, Paragraph } = Typography;
@@ -21,6 +23,9 @@ const eventTemplates = {
   TRANSACTION: {
     account: '1234567890',
     amount: 1000.50,
+    // 库里的 TRANSACTION 模板正文用到 {{balance}}；样例载荷缺这个键，
+    // 以前会把占位符原样渲染进通知发给客户（PRD-35）。
+    balance: 25430.00,
     currency: 'RUB',
     transactionType: 'DEBIT',
     description: 'POS消费',
@@ -59,6 +64,26 @@ const eventIcons = {
   SECURITY: CheckCircleOutlined
 };
 
+// 与后端 TemplateRenderService.UNRESOLVED_PLACEHOLDER 同一套语法：载荷里缺哪个键，
+// 派发时就会被 N19 拦成 FAILED_VALIDATION/VARIABLE_MISSING，所以录入时就先拦住（PRD-35 ①）。
+const PLACEHOLDER = /\{\{\s*([\w.]+)\s*\}\}/g;
+
+const variablesOf = (templates, eventType) => {
+  const names = new Set();
+  templates
+    .filter((tpl) => tpl && tpl.eventType === eventType)
+    .forEach((tpl) => {
+      [tpl.titleTemplate, tpl.bodyTemplate].forEach((text) => {
+        if (!text) return;
+        String(text).replace(PLACEHOLDER, (_m, name) => {
+          names.add(name);
+          return _m;
+        });
+      });
+    });
+  return [...names];
+};
+
 export default function EventSenderPage() {
   const intl = useIntl();
   const [form] = Form.useForm();
@@ -67,15 +92,78 @@ export default function EventSenderPage() {
   const [sending, setSending] = useState(false);
   const [history, setHistory] = useState([]);
   const [response, setResponse] = useState(null);
-  const [selectedCustomers, setSelectedCustomers] = useState([1]);
+  const [selectedCustomers, setSelectedCustomers] = useState([]);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, results: [] });
   const [isValidJson, setIsValidJson] = useState(true);
   const [mounted, setMounted] = useState(false);
+
+  // 真实用户目录：以前这里硬编码 [1..10]，其中大部分 id 库里根本不存在，
+  // 发出去就是指向不存在客户的孤儿通知行（PRD-33），而且界面上只写着「用户 7」看不出是谁。
+  const [customers, setCustomers] = useState([]);
+  const [directoryLoading, setDirectoryLoading] = useState(true);
+  const [directoryError, setDirectoryError] = useState(null);
+
+  // 模板正文里用到的变量集，用来在录入时就拦住缺变量的事件（否则要到派发期才失败）
+  const [templates, setTemplates] = useState([]);
+
+  // 「这个事件类型到底有几个人收得到」——派发完才能在历史页看到 NOT_SUBSCRIBED，
+  // 用户的第一反应就是"消息丢了"。这里把同一份判断前移到点发送之前（PRD-41）。
+  const [reach, setReach] = useState(null);
 
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    listCustomers()
+      .then((data) => {
+        if (cancelled) return;
+        setCustomers(Array.isArray(data) ? data : []);
+        setDirectoryError(null);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setCustomers([]);
+        setDirectoryError(error.response?.status === 403 ? 'ADMIN_REQUIRED' : 'DIRECTORY_UNAVAILABLE');
+      })
+      .finally(() => {
+        if (!cancelled) setDirectoryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTemplates()
+      .then((data) => {
+        if (!cancelled) setTemplates(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setTemplates([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const customerLabel = (customerId) => {
+    const found = customers.find((c) => c.id === customerId);
+    if (!found) return `${intl.formatMessage({ id: 'event.user' })} ${customerId}`;
+    return found.name || found.email || `${intl.formatMessage({ id: 'event.user' })} ${customerId}`;
+  };
+
+  useEffect(() => {
+    if (!eventType) {
+      setReach(null);
+      return undefined;
+    }
+    let cancelled = false;
+    // 失败（含非 ADMIN 的 403）一律静默降级：这只是发送前的提示，不能挡住主流程
+    getEventReach(eventType)
+      .then((data) => { if (!cancelled) setReach(data); })
+      .catch(() => { if (!cancelled) setReach(null); });
+    return () => { cancelled = true; };
+  }, [eventType]);
 
   useEffect(() => {
     try {
@@ -85,6 +173,57 @@ export default function EventSenderPage() {
       setIsValidJson(false);
     }
   }, [customData]);
+
+  const requiredVars = variablesOf(templates, eventType);
+  const templatesOf = (type) => templates.filter((tpl) => tpl && tpl.eventType === type);
+
+  /**
+   * 发送前摘要：一个事件真要落到客户手上，得同时满足「订阅了且开关打开 × 有该渠道的收件地址 ×
+   * 该「事件类型+渠道+客户语言」有模板」。少任何一个分别就是历史页里的 NOT_SUBSCRIBED /
+   * PREFERENCE_DISABLED / NO_PHONE·NO_EMAIL·NO_PUSH_TOKEN / TEMPLATE_MISSING ——
+   * 这几行在界面上看着都像 bug，提前说出来比让用户去考古便宜（PRD-41）。
+   */
+  const reachSummary = useMemo(() => {
+    if (!reach) return null;
+    const withTemplate = new Set(
+      templates.filter((t) => t && t.eventType === eventType && t.channel).map((t) => t.channel)
+    );
+    let deliverable = 0;
+    let blocked = 0;
+    let notSubscribed = 0;
+    (reach.customers || []).forEach((c) => {
+      if (!c.subscribed || !c.enabled) {
+        notSubscribed += 1;
+        return;
+      }
+      const usable = (c.channels || []).filter(
+        (ch) => !(c.unreachableChannels || []).includes(ch) && withTemplate.has(ch)
+      );
+      if (usable.length > 0) deliverable += 1; else blocked += 1;
+    });
+    return {
+      deliverable,
+      blocked,
+      notSubscribed,
+      total: (reach.customers || []).length,
+      templateChannels: Array.from(withTemplate),
+    };
+  }, [reach, templates, eventType]);
+
+  /** 返回缺失的模板变量名；载荷 JSON 本身不合法时返回 null，交给既有的 invalidJson 分支处理 */
+  const missingVars = (data) => {
+    if (!isValidJson) return null;
+    const payload = data ?? JSON.parse(customData || '{}');
+    return requiredVars.filter((name) => !(name in payload));
+  };
+
+  const blockMissingVars = (vars) => {
+    if (!vars || vars.length === 0) return false;
+    message.error(intl.formatMessage({ id: 'event.missingTemplateVars' }, { vars: vars.join(', ') }));
+    return true;
+  };
+
+  const pendingMissingVars = missingVars();
 
   const handleEventTypeChange = (value) => {
     setEventType(value);
@@ -100,7 +239,7 @@ export default function EventSenderPage() {
   };
 
   const handleSelectAll = () => {
-    setSelectedCustomers([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    setSelectedCustomers(customers.map((c) => c.id));
   };
 
   const handleClearSelection = () => {
@@ -128,6 +267,8 @@ export default function EventSenderPage() {
       message.error(intl.formatMessage({ id: 'event.invalidJson' }));
       return;
     }
+
+    if (blockMissingVars(missingVars())) return;
 
     setSending(true);
     setBatchProgress({ current: 0, total: selectedCustomers.length, results: [] });
@@ -211,6 +352,8 @@ export default function EventSenderPage() {
     }
 
     const templateData = eventTemplates[type] || {};
+    if (blockMissingVars(variablesOf(templates, type).filter((name) => !(name in templateData)))) return;
+
     setEventType(type);
     setCustomData(JSON.stringify(templateData, null, 2));
     setSending(true);
@@ -293,7 +436,7 @@ export default function EventSenderPage() {
     setEventType('TRANSACTION');
     setCustomData(JSON.stringify(eventTemplates.TRANSACTION, null, 2));
     setResponse(null);
-    setSelectedCustomers([1]);
+    setSelectedCustomers([]);
     setBatchProgress({ current: 0, total: 0, results: [] });
   };
 
@@ -351,8 +494,13 @@ export default function EventSenderPage() {
               <div>
                 <Text strong>{intl.formatMessage({ id: 'event.selectTargetUsers' })}</Text>
                 <Space style={{ marginTop: '8px' }}>
-                  <Button size="small" onClick={handleSelectAll} icon={<UserOutlined />}>
-                    {intl.formatMessage({ id: 'event.selectAll' })}
+                  <Button
+                    size="small"
+                    onClick={handleSelectAll}
+                    icon={<UserOutlined />}
+                    disabled={customers.length === 0}
+                  >
+                    {intl.formatMessage({ id: 'event.selectAll' }, { count: customers.length })}
                   </Button>
                   <Button size="small" onClick={handleClearSelection}>
                     {intl.formatMessage({ id: 'event.clearSelection' })}
@@ -362,6 +510,15 @@ export default function EventSenderPage() {
               <Tag color={selectedCustomers.length > 0 ? 'blue' : 'default'}>
                 {intl.formatMessage({ id: 'event.usersSelected' }, { count: selectedCustomers.length })}
               </Tag>
+              {directoryError && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={intl.formatMessage({ id: 'event.userDirectoryEmpty' })}
+                  description={directoryError}
+                  style={{ marginTop: '8px' }}
+                />
+              )}
               <Select
                 mode="multiple"
                 value={selectedCustomers}
@@ -370,11 +527,40 @@ export default function EventSenderPage() {
                 placeholder={intl.formatMessage({ id: 'event.selectUsersPlaceholder' })}
                 maxTagCount={5}
                 size="large"
-              >
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(id => (
-                  <Option key={id} value={id}>{intl.formatMessage({ id: 'event.user' })} {id}</Option>
-                ))}
-              </Select>
+                loading={directoryLoading}
+                disabled={customers.length === 0}
+                optionFilterProp="label"
+                options={customers.map((c) => ({
+                  value: c.id,
+                  label: `${c.name || `#${c.id}`}${c.email ? ` · ${c.email}` : ''}`,
+                }))}
+                optionRender={(option) => {
+                  const c = customers.find((x) => x.id === option.data.value);
+                  return (
+                    <Space direction="vertical" size={0}>
+                      <Text strong>{c?.name || `#${c?.id}`}</Text>
+                      <Text type="secondary" style={{ fontSize: '12px' }}>
+                        {c?.email || '—'} · {c?.role}
+                      </Text>
+                      <Space size={4}>
+                        {[
+                          ['SMS', c?.hasPhone],
+                          ['EMAIL', c?.hasEmail],
+                          ['PUSH', c?.hasPushToken],
+                        ].map(([channel, ready]) => (
+                          <Tag
+                            key={channel}
+                            color={ready ? 'green' : 'default'}
+                            style={{ margin: 0, opacity: ready ? 1 : 0.55 }}
+                          >
+                            {channel}
+                          </Tag>
+                        ))}
+                      </Space>
+                    </Space>
+                  );
+                }}
+              />
             </Space>
           </Card>
 
@@ -476,6 +662,48 @@ export default function EventSenderPage() {
                 </Col>
               </Row>
 
+              {templatesOf(eventType).length === 0 ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message={intl.formatMessage({ id: 'event.noTemplateForType' }, { type: eventType })}
+                />
+              ) : (
+                <Alert
+                  type={pendingMissingVars && pendingMissingVars.length > 0 ? 'error' : 'info'}
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message={intl.formatMessage({ id: 'event.templateVars' }, { vars: requiredVars.join(', ') })}
+                  description={
+                    pendingMissingVars && pendingMissingVars.length > 0
+                      ? intl.formatMessage({ id: 'event.missingTemplateVars' }, { vars: pendingMissingVars.join(', ') })
+                      : undefined
+                  }
+                />
+              )}
+
+              {reachSummary && (
+                <Alert
+                  type={reachSummary.deliverable > 0 ? 'info' : 'warning'}
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message={intl.formatMessage(
+                    { id: 'event.reachSummary' },
+                    {
+                      deliverable: reachSummary.deliverable,
+                      blocked: reachSummary.blocked,
+                      notSubscribed: reachSummary.notSubscribed,
+                    }
+                  )}
+                  description={
+                    reachSummary.deliverable === 0
+                      ? intl.formatMessage({ id: 'event.reachNothing' })
+                      : undefined
+                  }
+                />
+              )}
+
               <Form.Item 
                 label={intl.formatMessage({ id: 'event.data' })}
                 validateStatus={isValidJson ? 'success' : 'error'}
@@ -510,6 +738,10 @@ export default function EventSenderPage() {
                   {intl.formatMessage({ id: 'common.reset' })}
                 </Button>
               </div>
+
+              <Text type="secondary" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
+                {intl.formatMessage({ id: 'event.deliveryTip' })}
+              </Text>
             </Form>
           </Card>
 
@@ -586,7 +818,7 @@ export default function EventSenderPage() {
                       {item.eventType}
                     </Tag>
                     <Text strong style={{ marginLeft: '12px' }}>
-                      {intl.formatMessage({ id: 'event.user' })} {item.customerId}
+                      {customerLabel(item.customerId)}
                     </Text>
                     <Text style={{ marginLeft: '12px', color: 'rgba(0, 0, 0, 0.65)', fontSize: '12px' }}>
                       {item.eventId}

@@ -5,10 +5,12 @@ const useTemplateStore = create((set, get) => ({
   templates: [],
   loading: false,
 
-  fetchTemplates: async () => {
+  // params 三个维度都可选：后端 TemplateService.findAll 是动态查询，只传一个也能筛
+  fetchTemplates: async (params = {}) => {
     set({ loading: true });
+    const query = Object.fromEntries(Object.entries(params).filter(([, v]) => v));
     try {
-      const { data } = await axios.get('/templates');
+      const { data } = await axios.get('/templates', { params: query });
       set({
         templates: Array.isArray(data) ? data : data.content || [],
         loading: false,

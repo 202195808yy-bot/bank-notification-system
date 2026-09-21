@@ -12,6 +12,11 @@ export function updateProfile(profile) {
   return axios.patch('/customers/me', profile).then(res => res.data);
 }
 
+// 管理员用户目录（后端 GET /api/customers，非 ADMIN 返回 403 ADMIN_REQUIRED）
+export function listCustomers() {
+  return axios.get('/customers').then(res => res.data);
+}
+
 export function getPreferences() {
   return axios.get('/preferences').then(res => res.data);
 }
@@ -24,5 +29,11 @@ export function updatePreferences(prefs) {
     ...p,
     channels: Array.isArray(p.channels) ? p.channels : [],
   }));
+  // 返回值是 { warnings: [...] }：保存成功但某个渠道缺收件地址时的提示（PRD-40）
   return axios.put('/preferences', formatted).then(res => res.data);
+}
+
+// 某个事件类型的可送达面（后端 GET /api/preferences/reach，ADMIN-only）
+export function getEventReach(eventType) {
+  return axios.get('/preferences/reach', { params: { eventType } }).then(res => res.data);
 }

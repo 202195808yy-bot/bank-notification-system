@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Button, Card, Descriptions, Form, Input, Space, Spin, Tag, Typography, message } from 'antd';
+import { Alert, Button, Card, Descriptions, Form, Input, Select, Space, Spin, Tag, Typography, message } from 'antd';
 import { MailOutlined, MobileOutlined, NotificationOutlined } from '@ant-design/icons';
 import { useIntl } from 'react-intl';
 import { getCurrentCustomer, updateProfile } from '../api/customerApi';
 import useAuthStore from '../store/useAuthStore';
 import { formatDateTime } from '../utils/formatters';
+import { DEFAULT_NOTIFICATION_LOCALE, NOTIFICATION_LOCALES, TIMEZONE_OPTIONS } from '../utils/constants';
 import { enumLabel } from '../utils/labels';
 
 const { Title, Text } = Typography;
@@ -31,6 +32,9 @@ export default function ProfilePage() {
                     email: data.email,
                     phone: data.phone,
                     pushToken: data.pushToken,
+                    // 旧行在数据库里是 NULL（加列时没有 DEFAULT），显示与提交都按默认语言处理
+                    locale: data.locale || DEFAULT_NOTIFICATION_LOCALE,
+                    timezone: data.timezone || undefined,
                 });
             })
             .catch(() => message.error(intl.formatMessage({ id: 'profile.loadFailed' })))
@@ -44,7 +48,8 @@ export default function ProfilePage() {
     const handleSave = async (values) => {
         setSaving(true);
         try {
-            const data = await updateProfile(values);
+            // 清空时区要显式传空串：后端 PATCH 语义里 null=不改、空串=清除并回退服务端默认时区
+            const data = await updateProfile({ ...values, timezone: values.timezone || '' });
             setProfile(data);
             setUser({ name: data.name });
             message.success(intl.formatMessage({ id: 'profile.saved' }));
@@ -83,7 +88,7 @@ export default function ProfilePage() {
                     <Descriptions.Item label={intl.formatMessage({ id: 'profile.id' })}>{profile?.id}</Descriptions.Item>
                     <Descriptions.Item label={intl.formatMessage({ id: 'profile.role' })}>{profile?.role}</Descriptions.Item>
                     <Descriptions.Item label={intl.formatMessage({ id: 'profile.createdAt' })}>
-                        {formatDateTime(profile?.createdAt)}
+                        {formatDateTime(profile?.createdAt, intl.locale)}
                     </Descriptions.Item>
                 </Descriptions>
             </Card>
@@ -126,6 +131,30 @@ export default function ProfilePage() {
                         tooltip={intl.formatMessage({ id: 'profile.pushTokenTip' })}
                     >
                         <Input maxLength={500} />
+                    </Form.Item>
+                    <Form.Item
+                        name="locale"
+                        label={intl.formatMessage({ id: 'profile.locale' })}
+                        tooltip={intl.formatMessage({ id: 'profile.localeTip' })}
+                    >
+                        <Select
+                            options={NOTIFICATION_LOCALES.map((code) => ({
+                                value: code,
+                                label: intl.formatMessage({ id: `enum.locale.${code}` }),
+                            }))}
+                        />
+                    </Form.Item>
+                    <Form.Item
+                        name="timezone"
+                        label={intl.formatMessage({ id: 'profile.timezone' })}
+                        tooltip={intl.formatMessage({ id: 'profile.timezoneTip' })}
+                    >
+                        <Select
+                            allowClear
+                            showSearch
+                            placeholder={intl.formatMessage({ id: 'profile.timezonePlaceholder' })}
+                            options={TIMEZONE_OPTIONS.map((zone) => ({ value: zone, label: zone }))}
+                        />
                     </Form.Item>
                     <Form.Item>
                         <Button type="primary" htmlType="submit" loading={saving}>

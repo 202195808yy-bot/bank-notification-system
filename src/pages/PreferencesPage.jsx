@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Switch, Button, Modal, message, Form, Card, Space, Tooltip } from 'antd';
-import { PlusOutlined, EditOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Table, Switch, Button, Modal, message, Form, Card, Space, Tooltip, Alert } from 'antd';
+import { PlusOutlined, EditOutlined, InfoCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import { useIntl } from 'react-intl';
 import PreferenceForm from '../components/PreferenceForm';
 import usePreferenceStore from '../store/usePreferenceStore';
@@ -8,7 +8,7 @@ import { enumLabel } from '../utils/labels';
 
 export default function PreferencesPage() {
     const intl = useIntl();
-    const { prefs, loading, fetchPreferences, updatePreferences } = usePreferenceStore();
+    const { prefs, loading, warnings, fetchPreferences, updatePreferences } = usePreferenceStore();
     const [modalVisible, setModalVisible] = useState(false);
     const [editRecord, setEditRecord] = useState(null);
     const [form] = Form.useForm();
@@ -25,7 +25,8 @@ export default function PreferencesPage() {
             await updatePreferences(updated);
             message.success(intl.formatMessage({ id: 'common.toggleSuccess' }));
         } catch (e) {
-            message.error(intl.formatMessage({ id: 'common.toggleFailed' }));
+            // axios 拦截器已按后端 code 弹过具体文案，这里再弹一次会把原因盖掉
+            fetchPreferences();
         }
     };
 
@@ -54,7 +55,7 @@ export default function PreferencesPage() {
             form.resetFields();
             message.success(intl.formatMessage({ id: 'common.updatedSuccess' }));
         } catch (e) {
-            message.error(intl.formatMessage({ id: 'common.updateFailed' }));
+            // 同上：400 的 QUIET_PERIOD_* / 409 由拦截器给出语料文案
         }
     };
 
@@ -109,8 +110,8 @@ export default function PreferencesPage() {
                 </div>
             ),
             render: (_, r) => (
-                <span style={{ color: r.quietStart ? 'var(--color-text-secondary)' : 'var(--color-text-muted)' }}>
-                    {r.quietStart ? `${r.quietStart}-${r.quietEnd}` : '-'}
+                <span style={{ color: r.quietStart && r.quietEnd ? 'var(--color-text-secondary)' : 'var(--color-text-muted)' }}>
+                    {r.quietStart && r.quietEnd ? `${r.quietStart}-${r.quietEnd}` : '-'}
                 </span>
             ),
         },
@@ -180,6 +181,31 @@ export default function PreferencesPage() {
                     </p>
                 </div>
             </Card>
+
+            {warnings.length > 0 && (
+                <Alert
+                    type="warning"
+                    showIcon
+                    icon={<WarningOutlined />}
+                    closable
+                    onClose={() => usePreferenceStore.setState({ warnings: [] })}
+                    style={{ marginBottom: '16px' }}
+                    message={intl.formatMessage({ id: 'preferences.unreachableTitle' })}
+                    description={
+                        <ul style={{ margin: 0, paddingLeft: '18px' }}>
+                            {warnings.map((w) => (
+                                <li key={`${w.eventType}-${w.channel}`}>
+                                    {enumLabel(intl, 'eventType', w.eventType)}
+                                    {' · '}
+                                    {enumLabel(intl, 'channel', w.channel)}
+                                    {' — '}
+                                    {intl.formatMessage({ id: `enum.reason.${w.reason}` })}
+                                </li>
+                            ))}
+                        </ul>
+                    }
+                />
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
                 <Button

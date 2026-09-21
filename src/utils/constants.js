@@ -31,6 +31,36 @@ export const CHANNELS = {
     PUSH: 'Push',
 };
 
+/**
+ * 通知正文语言（模板 locale）。取值必须与后端 notification_templates.locale 的写法一致
+ * （下划线式），并与后端 AppConstants.SUPPORTED_LOCALES 逐项对应；
+ * 不能复用界面语言码 ru/zh/en —— 那是 react-intl 的 key，两套不通用（PRD-10）。
+ */
+export const NOTIFICATION_LOCALES = ['zh_CN', 'ru_RU', 'en_US'];
+export const DEFAULT_NOTIFICATION_LOCALE = 'zh_CN';
+
+/**
+ * 免打扰时段按哪个钟点判定（客户的 IANA 时区）。这里只列常用项，不是全集：
+ * 后端 Timezones.normalize 接受任意合法 IANA 名，界面不清空时留 null = 用服务端默认时区。
+ */
+export const TIMEZONE_OPTIONS = [
+    'Europe/Moscow',
+    'Europe/Kaliningrad',
+    'Europe/Samara',
+    'Asia/Yekaterinburg',
+    'Asia/Omsk',
+    'Asia/Krasnoyarsk',
+    'Asia/Irkutsk',
+    'Asia/Yakutsk',
+    'Asia/Vladivostok',
+    'Asia/Magadan',
+    'Asia/Kamchatka',
+    'Europe/Berlin',
+    'Europe/London',
+    'Asia/Shanghai',
+    'UTC',
+];
+
 export const CHANNEL_COLORS = {
     SMS: { bg: '#e6f7ff', tag: 'blue', icon: '📱' },
     EMAIL: { bg: '#f6ffed', tag: 'green', icon: '📧' },
@@ -71,6 +101,10 @@ export const REASONS = {
     NO_PUSH_TOKEN: 'Push token missing',
     CONTACT_UNAVAILABLE: 'Contact unavailable',
     UNKNOWN_CHANNEL: 'Unknown channel',
+    VARIABLE_MISSING: 'Template variable missing',
+    NOT_SUBSCRIBED: 'Not subscribed to this event type',
+    PREFERENCE_DISABLED: 'Disabled in preferences',
+    NO_CHANNEL: 'No channel in preferences',
 };
 
 export const MODERN_THEME = {
