@@ -1,0 +1,114 @@
+
+server:
+  port: 8084
+
+spring:
+  application:
+    name: channel-service
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:postgres}:5432/bank_notifications
+    username: ${DB_USER:postgres}
+    password: ${DB_PASS:123456}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USER:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          # 587/25 走 STARTTLS（默认）；465 是隐式 SSL，必须 ssl.enable=true 且把 STARTTLS 关掉，
+          # 否则 JavaMail 会在已加密的 socket 上再发一次 STARTTLS，报一个看不懂的
+          # "Could not convert socket to TLS"。QQ/163 两个端口都给，所以这里必须能切。
+          starttls:
+            enable: ${MAIL_STARTTLS_ENABLE:true}
+          ssl:
+            enable: ${MAIL_SSL_ENABLE:false}
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
+  kafka:
+    bootstrap-servers: ${KAFKA_HOST:kafka}:9092
+    consumer:
+      group-id: channel-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # PRD-42：裸 JsonDeserializer 解析失败会在进入业务代码之前抛 SerializationException，
+      # 容器无法跳过这条记录，offset 永不提交 —— 一条脏数据就能让整个分区卡死。
+      # ErrorHandlingDeserializer 把失败降级为「值为 null + 异常写进消息头」，
+      # 再由 KafkaErrorHandlingConfig 的 DefaultErrorHandler 投进 notification.send.command.DLT。
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        # 原来这里写的是 "*"：任何反序列化目标类型都放行。生产端只会发 com.bank.common.dto 下的 DTO，
+        # 收窄之后消息头里的 __TypeId__ 指向别的包就拒绝，避免被投喂任意类。
+        # 默认负载类型（SendCommand）不在这里配，它按主题在 KafkaErrorHandlingConfig 里注入。
+        spring.json.trusted.packages: com.bank.common.dto
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      smsSender:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+      emailSender:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+      pushSender:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+
+internal:
+  api:
+    token: ${INTERNAL_API_TOKEN:ZGV2LWludGVybmFsLWFwaS10b2tlbi0yMDI2}
+
+# 模拟通道的随机失败率（PRD-30）。默认保持 0.1 以兼容演示；
+# 需要可信的成功率数字时设 MOCK_FAILURE_RATE=0。
+mock:
+  failure-rate: ${MOCK_FAILURE_RATE:0.1}
+
+mail:
+  # 真正的开关是这一条。⚠️ 不要用"配了 host 就真发"来判断：Boot 3 的
+  # MailSenderAutoConfiguration 条件是 @ConditionalOnProperty(prefix="spring.mail", value="host")，
+  # 它只把字符串 "false" 当作不匹配，**空值照样会创建 JavaMailSender**。
+  # 所以 host 未配时 bean 依然存在但发不出去 —— 必须靠 real-send 显式打开。
+  real-send: ${MAIL_ENABLED:false}
+  from: ${MAIL_FROM:${MAIL_USER:}}
+
+sms:
+  # 与 mail.real-send 同一套判据：开关 + 四项凭据齐备才真发，缺任一都退回模拟（provider 记 aliyun-sms-mock）。
+  # ⚠️ 阿里云的短信签名与模板必须先在控制台审核通过，代码无法代为完成这一步。
+  real-send: ${SMS_ENABLED:false}
+  endpoint: ${SMS_ENDPOINT:https://dysmsapi.aliyuncs.com}
+  access-key-id: ${SMS_ACCESS_KEY_ID:}
+  access-key-secret: ${SMS_ACCESS_KEY_SECRET:}
+  sign-name: ${SMS_SIGN_NAME:}
+  template-code: ${SMS_TEMPLATE_CODE:}
+  region-id: ${SMS_REGION_ID:cn-hangzhou}
+  # 模板里承载通知正文的变量名，必须与你审核通过的模板文案里的 ${...} 一致
+  content-variable: ${SMS_CONTENT_VARIABLE:content}
+  # 单个模板变量的长度上限，超了直接不发并记 SMS_CONTENT_TOO_LONG。
+  # 20 来自实测：该模板对 ${content} 返回 isv.PARAM_LENGTH_LIMIT（参数超过长度限制:20）。
+  max-variable-length: ${SMS_MAX_VARIABLE_LENGTH:20}
+  # 每个事件类型对应阿里云控制台里一个**已审核**的模板；键必须小写（环境变量绑定时会小写化）。
+  # 配了的类型走多变量模板（把事件载荷逐变量传，这是发长通知唯一可行的形状）；
+  # 没配的类型退回单变量正文模式，超过上面的上限就显式失败 —— 宁可失败也不拿不相干的模板发错内容。
+  event-template:
+    bill: ${SMS_EVENT_TEMPLATE_BILL:}
+    login: ${SMS_EVENT_TEMPLATE_LOGIN:}
+    promotion: ${SMS_EVENT_TEMPLATE_PROMOTION:}
+    risk-alert: ${SMS_EVENT_TEMPLATE_RISK_ALERT:}
+    security: ${SMS_EVENT_TEMPLATE_SECURITY:}
+    transaction: ${SMS_EVENT_TEMPLATE_TRANSACTION:}
+  timeout-ms: ${SMS_TIMEOUT_MS:8000}

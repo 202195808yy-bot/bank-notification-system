@@ -1,0 +1,37 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: customer-service
+          uri: http://customer-service:8081
+          predicates:
+            - Path=/api/auth/**,/api/customers/**,/api/preferences/**
+        - id: notification-service
+          uri: http://notification-service:8082
+          predicates:
+            - Path=/api/notifications/**
+        - id: template-service
+          uri: http://template-service:8083
+          predicates:
+            - Path=/api/templates/**
+        - id: channel-service
+          uri: http://channel-service:8084
+          predicates:
+            - Path=/api/callback/**
+        - id: event-adapter
+          uri: http://event-adapter:8085
+          predicates:
+            - Path=/api/events/**
+
+jwt:
+  secret: ${JWT_SECRET:bXktc2VjcmV0LWtleS1mb3ItYmFuay1ub3RpZmljYXRpb24=}
+
+# 网关向下游注入的服务间令牌，必须与各服务里的 internal.api.token 一致（见 InternalApiAuthFilter）
+internal:
+  api:
+    token: ${INTERNAL_API_TOKEN:ZGV2LWludGVybmFsLWFwaS10b2tlbi0yMDI2}
