@@ -3,6 +3,13 @@
 # （空 JWT 密钥 = 任何人都能自签合法令牌；带 ?: 才能把这种部署错误挡在启动之前）。
 # ⚠️ application.yml 里 internal.api.token 的默认值只在容器外（IDEA / mvn spring-boot:run）开发时生效，
 # 与 .env 不一致会让内部接口一律返回 401。键名清单见 .env.example。
+
+# 项目名必须钉住：Docker 给命名卷加的前缀就是项目名，现有数据卷叫
+# bank-notification-backend_pgdata（本文件以前在 bank-notification-backend/ 目录里）。
+# 合并成 web/ + backend/ 之后默认项目名会变成 backend，compose 会另起一个空卷，
+# 表现就是"库被清空了"（旧卷其实还在，只是没挂上）。改这一行等于换一套数据。
+name: bank-notification-backend
+
 x-internal-token: &internal-token "${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN 未设置：把 .env.example 复制为 .env 后填一个随机串}"
 
 services:
@@ -308,7 +315,8 @@ services:
   # ===== 前端层 =====
   frontend:
     build:
-      context: ../bank-notification-web
+      # 同仓之后前端在仓库根的 web/ 下，与 backend/ 同级（Dockerfile 在 web/ 里）
+      context: ../web
       dockerfile: Dockerfile
     container_name: bank-frontend
     ports:
