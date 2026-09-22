@@ -8,6 +8,7 @@ import com.bank.common.enums.SendStatus;
 import com.bank.notification.client.ContactClient;
 import com.bank.notification.messaging.SendCommandProducer;
 import com.bank.notification.repository.NotificationRepository;
+import com.bank.notification.service.NotificationStreamService;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,9 +18,11 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -32,6 +35,18 @@ public class NotificationController {
     private final NotificationRepository notificationRepository;
     private final SendCommandProducer sendCommandProducer;
     private final ContactClient contactClient;
+    private final NotificationStreamService notificationStreamService;
+
+    /**
+     * 铃铛的实时通道（SSE）。以前前端只能 15 秒轮询，一条通知最坏要等 15 秒才响，
+     * 而浏览器会把后台标签页的定时器节流到约 1 次/分钟 —— 实测后端 7~25 毫秒就投递完了，
+     * 慢全慢在这头（PRD-30 的实时性缺口）。
+     * 只读自己的连接：客户 id 取自网关注入的头，不接受参数，否则可以旁观别人的通知。
+     */
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream(@RequestHeader("X-User-Id") Long userId) {
+        return notificationStreamService.subscribe(userId);
+    }
 
     @GetMapping
     public Page<Notification> list(@RequestParam(defaultValue = "0") int page,
@@ -190,17 +205,21 @@ public class NotificationController {
                             "attempts", notification.getRetryCount()));
         }
 
-        String recipient;
-        try {
-            CustomerContact contact = contactClient.getContact(notification.getCustomerId());
-            recipient = contact.recipientFor(notification.getChannel());
-            if (recipient == null) {
-                return ResponseEntity.status(HttpStatus.CONFLICT)
-                        .body(Map.of("code", String.valueOf(contact.missingReasonFor(notification.getChannel()))));
+        // 收件人以"当初落库的那条"为准：直发行（PRD-51）的地址根本不在客户档案里，
+        // 按档案重算会把短信发给另一个人。该列为 null 的存量行仍走原来的档案查询。
+        String recipient = notification.getRecipient();
+        if (recipient == null || recipient.isBlank()) {
+            try {
+                CustomerContact contact = contactClient.getContact(notification.getCustomerId());
+                recipient = contact.recipientFor(notification.getChannel());
+                if (recipient == null) {
+                    return ResponseEntity.status(HttpStatus.CONFLICT)
+                            .body(Map.of("code", String.valueOf(contact.missingReasonFor(notification.getChannel()))));
+                }
+            } catch (Exception e) {
+                log.error("重投时获取收件地址失败: notificationId={}", id, e);
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("code", "CONTACT_UNAVAILABLE"));
             }
-        } catch (Exception e) {
-            log.error("重投时获取收件地址失败: notificationId={}", id, e);
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("code", "CONTACT_UNAVAILABLE"));
         }
 
         notification.setStatus(SendStatus.PENDING);
@@ -216,6 +235,9 @@ public class NotificationController {
         cmd.setContent(notification.getContent());
         cmd.setTemplateId(notification.getTemplateId());
         cmd.setRecipient(recipient);
+        // 事件类型必须带上：短信通道靠它选阿里云模板。载荷带不过来（表里没存），
+        // 由 channel-service 复用上一次的 sent_logs.request。
+        cmd.setEventType(notification.getEventType());
         sendCommandProducer.send(cmd);
 
         return ResponseEntity.ok(Map.of("code", "RETRY_SUBMITTED",

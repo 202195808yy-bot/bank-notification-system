@@ -32,6 +32,7 @@ public class CustomerProfileService {
         contact.setEmail(customer.getEmail());
         contact.setPhone(customer.getPhone());
         contact.setPushToken(customer.getPushToken());
+        contact.setAccountNumber(customer.getAccountNumber());
         contact.setLocale(customer.getLocale());
         contact.setTimezone(customer.getTimezone());
         return contact;
@@ -76,17 +77,17 @@ public class CustomerProfileService {
             customer.setPushToken(token.isEmpty() ? null : token);
             touched = true;
         }
+        if (request.getAccountNumber() != null) {
+            // 空串 = 清除：清除后 {{account}} 回落到"事件载荷的值 → 收件地址掩码"，
+            // 而不是保留一个客户已经不想看到的旧账号
+            String account = request.getAccountNumber().trim();
+            customer.setAccountNumber(account.isEmpty() ? null : account);
+            touched = true;
+        }
         if (request.getLocale() != null) {
-            String locale = request.getLocale().trim();
-            // 空串 = 恢复默认语言；其它值必须在白名单内，否则会存成一个永远匹配不到模板的 locale，
-            // 表现为该客户所有渠道 SKIPPED/TEMPLATE_MISSING（派发端只对 null 做回退）
-            if (locale.isEmpty()) {
-                customer.setLocale(AppConstants.DEFAULT_LOCALE);
-            } else if (!AppConstants.SUPPORTED_LOCALES.contains(locale)) {
-                throw new IllegalArgumentException("UNSUPPORTED_LOCALE");
-            } else {
-                customer.setLocale(locale);
-            }
+            // 空串 = 清除成"未设置"（与 timezone 同构，派发端对 null 才做语言回退）。
+            // 白名单外的值一律 400：存进去会让该客户所有渠道静默变成 SKIPPED/TEMPLATE_MISSING。
+            customer.setLocale(com.bank.customer.util.Locales.normalize(request.getLocale()));
             touched = true;
         }
         if (request.getTimezone() != null) {

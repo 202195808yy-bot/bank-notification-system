@@ -16,4 +16,6 @@ public class RegisterRequest {
     private String password;
     /** 浏览器报告的 IANA 时区（Intl.DateTimeFormat().resolvedOptions().timeZone）；可不传，免打扰时段按它判定 */
     private String timezone;
+    /** 注册时界面所在的语言（localStorage.locale 或 navigator.language）；认不出来就不写，留 NULL 表示"未采集到" */
+    private String locale;
 }

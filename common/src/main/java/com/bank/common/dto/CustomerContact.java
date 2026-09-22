@@ -12,6 +12,8 @@ public class CustomerContact {
     private String email;
     private String phone;
     private String pushToken;
+    /** 客户登记的账号原值；进正文前必须过 Masking，派发端是唯一做掩码的地方 */
+    private String accountNumber;
     /** 客户选择的正文语言；null 表示未设置，由派发端回退到 AppConstants.DEFAULT_LOCALE */
     private String locale;
     /** 客户所在时区（IANA 名）；null 表示未知，由派发端回退到 app.business-zone */

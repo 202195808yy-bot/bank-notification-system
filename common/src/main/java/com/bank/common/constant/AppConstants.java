@@ -9,8 +9,10 @@ public final class AppConstants {
     /**
      * 客户可选的通知正文语言，取值必须与 notification_templates.locale 的写法一致（下划线式），
      * 前端同一份列表在 web/src/utils/constants.js 的 NOTIFICATION_LOCALES。
-     * ⚠️ 与界面语言（react-intl 的 ru/zh/en 短码）是两套互不相干的值：客户在 /profile 的下拉里
-     * 直接选这三个之一，派发端按 customers.locale 取模板，没有、也不应该有任何自动映射（PRD-10）。
+     * ⚠️ 与界面语言（react-intl 的 ru/zh/en 短码）是两套值：派发端**只按 customers.locale 取模板**，
+     * 运行期不存在"界面切成俄文就顺带用俄文正文"这种映射（PRD-10）。
+     * 唯一的采集发生在注册那一刻（{@code AuthService.register} + {@code Locales.fromBrowser}，
+     * 与 timezone 同构）：那只是把用户当下所在的语言写成初值，之后由他在 /profile 自己改。
      */
     public static final java.util.List<String> SUPPORTED_LOCALES = java.util.List.of("zh_CN", "ru_RU", "en_US");
     public static final String DEFAULT_ROLE = "USER";

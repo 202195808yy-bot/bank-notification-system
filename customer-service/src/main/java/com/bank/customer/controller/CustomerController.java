@@ -1,6 +1,5 @@
 package com.bank.customer.controller;
 
-import com.bank.common.entity.Customer;
 import com.bank.customer.dto.ProfileRequest;
 import com.bank.customer.security.CurrentUserResolver;
 import com.bank.customer.service.CustomerProfileService;

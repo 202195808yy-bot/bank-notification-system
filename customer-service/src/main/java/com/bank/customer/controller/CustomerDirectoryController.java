@@ -1,7 +1,6 @@
 package com.bank.customer.controller;
 
 import com.bank.common.constant.AppConstants;
-import com.bank.customer.dto.CustomerDirectoryEntry;
 import com.bank.customer.service.CustomerProfileService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

@@ -23,8 +23,13 @@ spring:
       mail:
         smtp:
           auth: true
+          # 587/25 走 STARTTLS（默认）；465 是隐式 SSL，必须 ssl.enable=true 且把 STARTTLS 关掉，
+          # 否则 JavaMail 会在已加密的 socket 上再发一次 STARTTLS，报一个看不懂的
+          # "Could not convert socket to TLS"。QQ/163 两个端口都给，所以这里必须能切。
           starttls:
-            enable: true
+            enable: ${MAIL_STARTTLS_ENABLE:true}
+          ssl:
+            enable: ${MAIL_SSL_ENABLE:false}
           connectiontimeout: 10000
           timeout: 10000
           writetimeout: 10000
@@ -80,3 +85,30 @@ mail:
   # 所以 host 未配时 bean 依然存在但发不出去 —— 必须靠 real-send 显式打开。
   real-send: ${MAIL_ENABLED:false}
   from: ${MAIL_FROM:${MAIL_USER:}}
+
+sms:
+  # 与 mail.real-send 同一套判据：开关 + 四项凭据齐备才真发，缺任一都退回模拟（provider 记 aliyun-sms-mock）。
+  # ⚠️ 阿里云的短信签名与模板必须先在控制台审核通过，代码无法代为完成这一步。
+  real-send: ${SMS_ENABLED:false}
+  endpoint: ${SMS_ENDPOINT:https://dysmsapi.aliyuncs.com}
+  access-key-id: ${SMS_ACCESS_KEY_ID:}
+  access-key-secret: ${SMS_ACCESS_KEY_SECRET:}
+  sign-name: ${SMS_SIGN_NAME:}
+  template-code: ${SMS_TEMPLATE_CODE:}
+  region-id: ${SMS_REGION_ID:cn-hangzhou}
+  # 模板里承载通知正文的变量名，必须与你审核通过的模板文案里的 ${...} 一致
+  content-variable: ${SMS_CONTENT_VARIABLE:content}
+  # 单个模板变量的长度上限，超了直接不发并记 SMS_CONTENT_TOO_LONG。
+  # 20 来自实测：该模板对 ${content} 返回 isv.PARAM_LENGTH_LIMIT（参数超过长度限制:20）。
+  max-variable-length: ${SMS_MAX_VARIABLE_LENGTH:20}
+  # 每个事件类型对应阿里云控制台里一个**已审核**的模板；键必须小写（环境变量绑定时会小写化）。
+  # 配了的类型走多变量模板（把事件载荷逐变量传，这是发长通知唯一可行的形状）；
+  # 没配的类型退回单变量正文模式，超过上面的上限就显式失败 —— 宁可失败也不拿不相干的模板发错内容。
+  event-template:
+    bill: ${SMS_EVENT_TEMPLATE_BILL:}
+    login: ${SMS_EVENT_TEMPLATE_LOGIN:}
+    promotion: ${SMS_EVENT_TEMPLATE_PROMOTION:}
+    risk-alert: ${SMS_EVENT_TEMPLATE_RISK_ALERT:}
+    security: ${SMS_EVENT_TEMPLATE_SECURITY:}
+    transaction: ${SMS_EVENT_TEMPLATE_TRANSACTION:}
+  timeout-ms: ${SMS_TIMEOUT_MS:8000}

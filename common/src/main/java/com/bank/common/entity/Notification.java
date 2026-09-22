@@ -53,6 +53,14 @@ public class Notification {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
 
+    /**
+     * 这条通知实际投往的地址（手机号/邮箱/push 令牌）。地址缺失的行（如 NO_PHONE）为 null。
+     * 有了它，「输入谁的手机号/邮箱就发给谁」的直发记录在历史页里才说得出发去了哪里。
+     * ⚠️ 可空 + 无默认值，所以 ddl-auto=update 追加这一列时在存量表上安全（PRD-18）。
+     */
+    @Column(name = "recipient", length = 120)
+    private String recipient;
+
     /** 发送状态 */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

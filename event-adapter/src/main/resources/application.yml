@@ -10,6 +10,23 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      # PRD-05 的第一半：投出去要等 broker 确认。⚠️ 本 compose 只有 1 个 broker、副本因子 1，
+      # 所以 acks=all 在这里买到的是"leader 已落盘"，不是真正的多数派冗余 —— 它的价值在
+      # EventProducer 的同步取结果 + 控制器的 503（见 PROJECT_DOCUMENTATION.md §3.4.1）。
+      acks: all
+      retries: 3
+      properties:
+        # 元数据拿不到时 send() 会在本地阻塞 max.block.ms（默认 60 秒）—— 必须压小，
+        # 否则 Kafka 宕机会先表现为"发送页转圈一分钟"，而不是一个干脆的 503。
+        max.block.ms: 3000
+        # 缓冲区里最多攒这么久就判定失败（默认 120 秒，实测那次故障就是它到期后整批丢弃）。
+        delivery.timeout.ms: 8000
+        request.timeout.ms: 3000
+        enable.idempotence: false
+
+event:
+  # 同步确认的等待上限，需与上面 delivery.timeout.ms 同量级且略大
+  publish-confirm-timeout-ms: 9000
 
 internal:
   api:

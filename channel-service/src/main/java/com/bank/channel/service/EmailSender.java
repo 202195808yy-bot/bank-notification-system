@@ -48,8 +48,17 @@ public class EmailSender implements ChannelSender {
     @Value("${mock.failure-rate:0.1}")
     private double failureRate;
 
-    @Value("${mail.from:${spring.mail.username:}}")
-    private String fromAddress;
+    /**
+     * 发件地址。⚠️ 不能写成 {@code ${mail.from:${spring.mail.username:}}} 这种嵌套默认：
+     * compose 会把 MAIL_FROM 注入成<b>空串</b>，而 Spring 在"属性存在但为空"时不会回退到默认值，
+     * 于是 from 变成空 → {@code setFrom("")} 抛 {@code AddressException: Illegal address}，
+     * 看起来像收件地址非法（本轮实测就被误导过一次）。回退必须在 Java 里做。
+     */
+    @Value("${mail.from:}")
+    private String mailFrom;
+
+    @Value("${spring.mail.username:}")
+    private String mailUsername;
 
     @Override
     @CircuitBreaker(name = "emailSender", fallbackMethod = "sendFallback")
@@ -61,20 +70,29 @@ public class EmailSender implements ChannelSender {
                         command.getNotificationId());
             }
             if (failureRate > 0 && Math.random() < failureRate) {
-                throw new RuntimeException("邮件发送失败");
+                throw new ProviderRejectException("MAIL_MOCK_RANDOM_FAIL", "邮件发送失败（模拟随机失败）");
             }
+            // 与短信同一判据：模拟成功必须标出来，否则"没收到信但历史写已发送"无法自证
             saveLog(command, PROVIDER_MOCK, "Email sent", "SENT");
-            statusProducer.send(NotificationStatus.success(command.getNotificationId(), PROVIDER_MOCK, "Email sent"));
+            statusProducer.send(NotificationStatus.success(command.getNotificationId(),
+                    PROVIDER_MOCK, "Email sent", "MAIL_MOCK_SEND"));
             return;
         }
         sendReal(sender, command);
     }
 
     private void sendReal(JavaMailSender sender, SendCommand command) {
+        String from = resolveFrom();
+        // 先查发件地址：它为空是<b>我们的配置缺失</b>，不是客户填错邮箱。
+        // 不拦的话 setFrom("") 抛 AddressException，落到 smtpReason 里就成了 MAIL_RECIPIENT_INVALID —— 提示会说谎。
+        if (from == null) {
+            throw new ProviderRejectException("MAIL_SENDER_INVALID",
+                    "发件地址未配置（MAIL_FROM / MAIL_USER 均为空），无法真实投递");
+        }
         try {
             MimeMessage message = sender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, false, StandardCharsets.UTF_8.name());
-            helper.setFrom(fromAddress);
+            helper.setFrom(from);
             helper.setTo(command.getRecipient());
             helper.setSubject(subjectOf(command));
             helper.setText(command.getContent() == null ? "" : command.getContent());
@@ -85,8 +103,44 @@ public class EmailSender implements ChannelSender {
         } catch (Exception e) {
             // 交给熔断器的 fallback 记 FAILED + 回调状态，这里只补一条带收件人的定位日志
             log.error("邮件真实投递失败: notificationId={}, to={}", command.getNotificationId(), command.getRecipient(), e);
-            throw new RuntimeException("邮件发送失败: " + e.getMessage(), e);
+            throw new ProviderRejectException(smtpReason(e), "邮件发送失败: " + ChannelSender.describe(e), e);
         }
+    }
+
+    /**
+     * 发件地址回退：显式 MAIL_FROM → 登录账号 MAIL_USER。
+     * 绝大多数公共邮箱（QQ/163/Gmail）要求"信封 from 必须等于登录账号"，否则会直接拒信，
+     * 所以拿登录账号兜底比留空更实用；两个都为空才判定为未配置。
+     */
+    private String resolveFrom() {
+        if (mailFrom != null && !mailFrom.isBlank()) {
+            return mailFrom.trim();
+        }
+        if (mailUsername != null && !mailUsername.isBlank()) {
+            return mailUsername.trim();
+        }
+        return null;
+    }
+
+    /** SMTP 的异常层级太深（MailException → AuthenticationFailedException → …），按根因类名收口成四类 */
+    private String smtpReason(Exception e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String name = t.getClass().getSimpleName();
+            if (name.contains("Authentication") || name.contains("MailAuthentication")) {
+                return "MAIL_CREDENTIAL_INVALID";
+            }
+            if (name.contains("SendFailed") || name.contains("Address") || name.contains("Invalid")) {
+                return "MAIL_RECIPIENT_INVALID";
+            }
+            if (name.contains("SSL") || name.contains("Socket") || name.contains("Connect")
+                    || name.contains("UnknownHost") || name.contains("Timeout")) {
+                return "MAIL_SERVER_UNAVAILABLE";
+            }
+            if (t.getCause() == t) {
+                break;
+            }
+        }
+        return "MAIL_SEND_FAILED";
     }
 
     /** 主题用派发端渲染好的 titleTemplate；老消息没有 subject 字段时退回正文首行，避免发出空主题邮件 */
@@ -106,8 +160,12 @@ public class EmailSender implements ChannelSender {
 
     private void sendFallback(SendCommand command, Throwable t) {
         String provider = useReal() ? PROVIDER_REAL : PROVIDER_MOCK;
+        String reasonCode = t instanceof ProviderRejectException reject
+                ? reject.getReasonCode()
+                : "MAIL_SEND_FAILED";
         saveLog(command, provider, t.getMessage(), "FAILED");
-        statusProducer.send(NotificationStatus.failure(command.getNotificationId(), provider, t.getMessage()));
+        statusProducer.send(NotificationStatus.failure(command.getNotificationId(),
+                provider, t.getMessage(), reasonCode));
     }
 
     /** 真发 = 显式开关打开 且 host 非空白；任一不满足都走 mock，绝不为配置缺失给客户留一条 FAILED */

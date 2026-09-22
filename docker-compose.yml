@@ -1,7 +1,9 @@
-# 服务间令牌：改这一行即可整体换掉。各容器通过 INTERNAL_API_TOKEN 注入；
-# application.yml 里的 internal.api.token 默认值只在容器外（IDEA / mvn spring-boot:run）开发时生效，
-# 两边不一致会让内部接口一律返回 401。
-x-internal-token: &internal-token "ZGV2LWludGVybmFsLWFwaS10b2tlbi0yMDI2"
+# 服务密钥一律从同目录的 .env 读（PRD-27）：JWT_SECRET / INTERNAL_API_TOKEN / POSTGRES_PASSWORD。
+# 本文件里不再留任何字面量 —— 缺变量时 compose 会直接报错退出，而不是带着空密钥起来
+# （空 JWT 密钥 = 任何人都能自签合法令牌；带 ?: 才能把这种部署错误挡在启动之前）。
+# ⚠️ application.yml 里 internal.api.token 的默认值只在容器外（IDEA / mvn spring-boot:run）开发时生效，
+# 与 .env 不一致会让内部接口一律返回 401。键名清单见 .env.example。
+x-internal-token: &internal-token "${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN 未设置：把 .env.example 复制为 .env 后填一个随机串}"
 
 services:
   # ===== 基础设施层 =====
@@ -10,7 +12,7 @@ services:
     container_name: bank-postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 123456
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置：见 .env.example}
       POSTGRES_DB: bank_notifications
     ports:
       # 绑定 127.0.0.1：本机 IDEA/psql 照常可连，局域网与其他主机不可达（PRD-01）
@@ -107,7 +109,7 @@ services:
       DB_PASS: 123456
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      JWT_SECRET: bXktc2VjcmV0LWtleS1mb3ItYmFuay1ub3RpZmljYXRpb24=
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 未设置：见 .env.example（必须换成你自己的随机串）}
       INTERNAL_API_TOKEN: *internal-token
       SPRING_PROFILES_ACTIVE: docker
     depends_on:
@@ -212,8 +214,32 @@ services:
       MAIL_USER: ${MAIL_USER:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_STARTTLS_ENABLE: ${MAIL_STARTTLS_ENABLE:-true}
+      MAIL_SSL_ENABLE: ${MAIL_SSL_ENABLE:-false}
       # 演示保留 10% 随机失败；要让仪表盘的成功率数字可信就设 MOCK_FAILURE_RATE=0
       MOCK_FAILURE_RATE: ${MOCK_FAILURE_RATE:-0.1}
+      # 短信同理，且门槛比邮件高：阿里云的「签名」与「模板」都要控制台审核通过（个人主体通常要几天），
+      # 代码这边只是把已渲染正文塞进模板的单个文本变量。凭据一律走 .env，不进仓库。
+      SMS_ENABLED: ${SMS_ENABLED:-false}
+      # 单独可改 endpoint 是为了能把「真发分支」测通：指向一个不存在的域名即可看到 FAILED，
+      # 不必拿真凭据去打阿里云。默认值与 application.yml 一致。
+      SMS_ENDPOINT: ${SMS_ENDPOINT:-https://dysmsapi.aliyuncs.com}
+      SMS_ACCESS_KEY_ID: ${SMS_ACCESS_KEY_ID:-}
+      SMS_ACCESS_KEY_SECRET: ${SMS_ACCESS_KEY_SECRET:-}
+      SMS_SIGN_NAME: ${SMS_SIGN_NAME:-}
+      SMS_TEMPLATE_CODE: ${SMS_TEMPLATE_CODE:-}
+      SMS_CONTENT_VARIABLE: ${SMS_CONTENT_VARIABLE:-content}
+      SMS_MAX_VARIABLE_LENGTH: ${SMS_MAX_VARIABLE_LENGTH:-20}
+      # 每个事件类型一个已审核的阿里云模板 CODE；留空则该类型退回单变量正文模式。
+      SMS_EVENT_TEMPLATE_BILL: ${SMS_EVENT_TEMPLATE_BILL:-}
+      SMS_EVENT_TEMPLATE_LOGIN: ${SMS_EVENT_TEMPLATE_LOGIN:-}
+      SMS_EVENT_TEMPLATE_PROMOTION: ${SMS_EVENT_TEMPLATE_PROMOTION:-}
+      SMS_EVENT_TEMPLATE_RISK_ALERT: ${SMS_EVENT_TEMPLATE_RISK_ALERT:-}
+      SMS_EVENT_TEMPLATE_SECURITY: ${SMS_EVENT_TEMPLATE_SECURITY:-}
+      SMS_EVENT_TEMPLATE_TRANSACTION: ${SMS_EVENT_TEMPLATE_TRANSACTION:-}
+      SMS_REGION_ID: ${SMS_REGION_ID:-cn-hangzhou}
+      # 阿里云短信请求超时（毫秒）。此前只有 application.yml 的默认值能改它，.env 填了不生效
+      SMS_TIMEOUT_MS: ${SMS_TIMEOUT_MS:-8000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -257,7 +283,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      JWT_SECRET: bXktc2VjcmV0LWtleS1mb3ItYmFuay1ub3RpZmljYXRpb24=
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 未设置：见 .env.example（必须换成你自己的随机串）}
       INTERNAL_API_TOKEN: *internal-token
       SPRING_PROFILES_ACTIVE: docker
     depends_on:

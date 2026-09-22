@@ -25,6 +25,10 @@ public class ProfileRequest {
     @Size(max = 500)
     private String pushToken;
 
+    /** 通知正文 {{account}} 显示的账号；存原值、出掩码（只出后四位），空串=清除 */
+    @Size(max = 32)
+    private String accountNumber;
+
     /** 通知正文语言（zh_CN/ru_RU/en_US）；空串=恢复默认。取值范围在服务层按白名单判 */
     @Size(max = 10)
     private String locale;
