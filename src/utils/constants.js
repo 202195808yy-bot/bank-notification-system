@@ -76,14 +76,6 @@ export const STATUS_MAP = {
     FAILED_VALIDATION: 'Validation failed',
 };
 
-export const STATUS_COLOR = {
-    PENDING: 'processing',
-    SENT: 'success',
-    FAILED: 'error',
-    SKIPPED: 'default',
-    FAILED_VALIDATION: 'warning',
-};
-
 export const STATUS_DETAILS = {
     PENDING: { icon: '⏳', color: '#faad14', bg: '#fffbe6' },
     SENT: { icon: '✅', color: '#52c41a', bg: '#f6ffed' },
@@ -105,6 +97,32 @@ export const REASONS = {
     NOT_SUBSCRIBED: 'Not subscribed to this event type',
     PREFERENCE_DISABLED: 'Disabled in preferences',
     NO_CHANNEL: 'No channel in preferences',
+    DIRECT_CHANNEL_MISSING: 'Channel not resolved for direct send',
+    DIRECT_RECIPIENT_MISSING: 'Recipient address missing',
+    // 渠道回执原因码（channel-service 的 ProviderRejectException / *_MOCK_SEND）
+    SMS_AMOUNT_NOT_ENOUGH: 'SMS provider balance is insufficient',
+    SMS_SIGNATURE_INVALID: 'SMS signature is not approved or does not match',
+    SMS_TEMPLATE_INVALID: 'SMS template code is invalid or not approved',
+    SMS_TEMPLATE_PARAM_MISSING: 'SMS template variables do not match the payload',
+    SMS_CONTENT_TOO_LONG: 'Notification text exceeds the SMS template variable length limit',
+    SMS_RECIPIENT_INVALID: 'Recipient phone number is invalid',
+    SMS_CREDENTIAL_INVALID: 'SMS provider credentials are invalid or disabled',
+    SMS_RATE_LIMITED: 'SMS sending limit reached',
+    SMS_GATEWAY_UNAVAILABLE: 'SMS gateway is unreachable',
+    SMS_GATEWAY_REJECTED: 'SMS gateway rejected the request',
+    SMS_SEND_FAILED: 'SMS sending failed',
+    SMS_MOCK_SEND: 'Simulated SMS — nothing was actually delivered',
+    SMS_MOCK_RANDOM_FAIL: 'Simulated SMS failure (random mock rate)',
+    MAIL_CREDENTIAL_INVALID: 'SMTP credentials are invalid',
+    MAIL_SENDER_INVALID: 'Sender address is not configured on the server',
+    MAIL_RECIPIENT_INVALID: 'Recipient email address is invalid',
+    MAIL_SERVER_UNAVAILABLE: 'SMTP server is unreachable',
+    MAIL_SEND_FAILED: 'Email sending failed',
+    MAIL_MOCK_SEND: 'Simulated email — nothing was actually delivered',
+    MAIL_MOCK_RANDOM_FAIL: 'Simulated email failure (random mock rate)',
+    PUSH_SEND_FAILED: 'Push sending failed',
+    PUSH_MOCK_SEND: 'Simulated push — nothing was actually delivered',
+    PUSH_MOCK_RANDOM_FAIL: 'Simulated push failure (random mock rate)',
 };
 
 export const MODERN_THEME = {

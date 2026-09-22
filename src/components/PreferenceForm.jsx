@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Form, Select, Checkbox, TimePicker, Switch, Button, Tooltip } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import { useIntl } from 'react-intl';
@@ -26,7 +26,7 @@ const validateQuietPair = (start, end, intl) => {
 
 export default function PreferenceForm({ initialValues, onSave, form, onValuesChange }) {
     const intl = useIntl();
-    const [submitting, setSubmitting] = React.useState(false);
+    const [submitting, setSubmitting] = useState(false);
 
     // 清除按钮只在至少填了一端时出现；useWatch 保证改动即时反映
     const quietStartField = Form.useWatch('quietStart', form);

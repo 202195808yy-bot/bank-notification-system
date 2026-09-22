@@ -137,6 +137,13 @@ a:hover {
     }
 }
 
+/* 铃铛面板的加载指示引用了 animation: spin，此前全仓没有这个关键帧，骨架永远不转 */
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .page-container {
     padding: 24px;
     background: var(--color-bg-layout);
@@ -181,12 +188,24 @@ a:hover {
     overflow: hidden !important;
 }
 
+/* 侧栏是 fixed（脱离文档流），正文只能靠 margin-left 让位。
+   让位量由 React 写在 data-sider 上的状态决定，CSS 里不再自己判断点：
+   两边各判一次时，折叠按钮只收窄侧栏，正文仍按 200px 让位（PRD-55/N61）。
+   这里必须用 !important 才能压住 antd 的 :where() 规则，所以选择器多带一个属性来提高优先级。 */
 .ant-layout-content {
-    margin-left: var(--layout-sider-width) !important;
+    margin-left: 0 !important;
     padding: 24px !important;
     min-height: calc(100vh - var(--layout-header-height)) !important;
     background: var(--color-bg-layout) !important;
     transition: margin-left 0.25s ease !important;
+}
+
+.ant-layout-content[data-sider="expanded"] {
+    margin-left: var(--layout-sider-width) !important;
+}
+
+.ant-layout-content[data-sider="collapsed"] {
+    margin-left: var(--layout-sider-collapsed-width) !important;
 }
 
 .ant-btn-primary {
@@ -441,7 +460,6 @@ a:hover {
 
 @media (max-width: 768px) {
     :root {
-        --layout-sider-width: 0px;
         --font-size: 12px;
         --font-size-lg: 13px;
         --font-size-xl: 16px;
@@ -456,7 +474,7 @@ a:hover {
     }
     
     .ant-layout-content {
-        margin-left: 0 !important;
+        /* 这里不再写 margin-left：移动端侧栏根本不渲染，让位量由 data-sider="hidden" 走基础规则 */
         padding: 16px !important;
     }
     

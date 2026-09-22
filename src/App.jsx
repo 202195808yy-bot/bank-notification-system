@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import { Suspense } from 'react';
 import { Spin } from 'antd';
 import AppRoutes from './routes';
 

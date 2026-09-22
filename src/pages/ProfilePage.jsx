@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Descriptions, Form, Input, Select, Space, Spin, Tag, Typography, message } from 'antd';
 import { MailOutlined, MobileOutlined, NotificationOutlined } from '@ant-design/icons';
 import { useIntl } from 'react-intl';
 import { getCurrentCustomer, updateProfile } from '../api/customerApi';
 import useAuthStore from '../store/useAuthStore';
 import { formatDateTime } from '../utils/formatters';
-import { DEFAULT_NOTIFICATION_LOCALE, NOTIFICATION_LOCALES, TIMEZONE_OPTIONS } from '../utils/constants';
+import { NOTIFICATION_LOCALES, TIMEZONE_OPTIONS } from '../utils/constants';
 import { enumLabel } from '../utils/labels';
 
 const { Title, Text } = Typography;
@@ -32,8 +32,9 @@ export default function ProfilePage() {
                     email: data.email,
                     phone: data.phone,
                     pushToken: data.pushToken,
-                    // 旧行在数据库里是 NULL（加列时没有 DEFAULT），显示与提交都按默认语言处理
-                    locale: data.locale || DEFAULT_NOTIFICATION_LOCALE,
+                    accountNumber: data.accountNumber,
+                    // 未设置就留空：把 NULL 渲染成「中文」等于替客户做决定，而保存时又会被写回库里
+                    locale: data.locale || undefined,
                     timezone: data.timezone || undefined,
                 });
             })
@@ -48,8 +49,13 @@ export default function ProfilePage() {
     const handleSave = async (values) => {
         setSaving(true);
         try {
-            // 清空时区要显式传空串：后端 PATCH 语义里 null=不改、空串=清除并回退服务端默认时区
-            const data = await updateProfile({ ...values, timezone: values.timezone || '' });
+            // 清空时区/语言要显式传空串：后端 PATCH 语义里 null=不改、空串=清除（时区回退服务端默认钟点，
+            // 语言回退派发端的默认模板语言）
+            const data = await updateProfile({
+                ...values,
+                timezone: values.timezone || '',
+                locale: values.locale || '',
+            });
             setProfile(data);
             setUser({ name: data.name });
             message.success(intl.formatMessage({ id: 'profile.saved' }));
@@ -133,11 +139,20 @@ export default function ProfilePage() {
                         <Input maxLength={500} />
                     </Form.Item>
                     <Form.Item
+                        name="accountNumber"
+                        label={intl.formatMessage({ id: 'profile.accountNumber' })}
+                        tooltip={intl.formatMessage({ id: 'profile.accountNumberTip' })}
+                    >
+                        <Input maxLength={32} allowClear />
+                    </Form.Item>
+                    <Form.Item
                         name="locale"
                         label={intl.formatMessage({ id: 'profile.locale' })}
                         tooltip={intl.formatMessage({ id: 'profile.localeTip' })}
                     >
                         <Select
+                            allowClear
+                            placeholder={intl.formatMessage({ id: 'profile.localePlaceholder' })}
                             options={NOTIFICATION_LOCALES.map((code) => ({
                                 value: code,
                                 label: intl.formatMessage({ id: `enum.locale.${code}` }),

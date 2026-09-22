@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Form, Input, Button, Alert, Card } from 'antd';
 import { Link, useNavigate } from 'react-router-dom';
 import { BellOutlined, MailOutlined, LockOutlined, EyeOutlined, EyeTwoTone } from '@ant-design/icons';
 import { useIntl } from 'react-intl';
 import useAuthStore from '../store/useAuthStore';
+import { errorText } from '../i18n';
 import LocaleSwitcher from '../components/LocaleSwitcher';
 
 export default function LoginPage() {
@@ -26,7 +27,10 @@ export default function LoginPage() {
       await login({ email, password });
       navigate('/dashboard');
     } catch (e) {
-      setError(e.response?.data?.message || intl.formatMessage({ id: 'login.loginFailed' }));
+      // 优先按后端 {code} 译成当前语言；只有没有 code 时才退回后端 message，再退通用文案
+      const data = e.response?.data;
+      setError(errorText(data?.code) || data?.message
+        || intl.formatMessage({ id: 'login.loginFailed' }));
     } finally {
       setLoading(false);
     }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
 import { Layout as AntLayout, Spin } from 'antd';
 import { useIntl } from 'react-intl';
@@ -8,9 +8,9 @@ import useAuthStore from '../../store/useAuthStore';
 
 const { Content } = AntLayout;
 
-const HEADER_HEIGHT = 64;
-const SIDEBAR_WIDTH = 200;
-const SIDEBAR_COLLAPSED_WIDTH = 64;
+// 头部高度与侧栏宽度都只认 index.css 里的 --layout-* 变量：JS 再抄一份数字，
+// 就会出现「CSS 在 480px 以下把头部改成 56px，正文仍按 64px 让位」这类错位。
+const HEADER_HEIGHT = 'var(--layout-header-height)';
 
 export default function Layout() {
     const intl = useIntl();
@@ -28,12 +28,7 @@ export default function Layout() {
     }, []);
 
     useEffect(() => {
-        const checkMobile = () => {
-            setIsMobile(window.innerWidth < 768);
-            if (window.innerWidth < 768) {
-                setSidebarCollapsed(true);
-            }
-        };
+        const checkMobile = () => setIsMobile(window.innerWidth < 768);
         checkMobile();
         window.addEventListener('resize', checkMobile);
         return () => window.removeEventListener('resize', checkMobile);
@@ -72,11 +67,11 @@ export default function Layout() {
 
     if (!user) return <Navigate to="/login" replace />;
 
-    const sidebarWidth = sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH;
+    const sidebarState = isMobile ? 'hidden' : sidebarCollapsed ? 'collapsed' : 'expanded';
 
     return (
         <AntLayout style={{ minHeight: '100vh', background: '#f5f5f5', overflowX: 'hidden' }}>
-            <Header />
+            <Header isMobile={isMobile} />
             <div style={{ 
                 paddingTop: HEADER_HEIGHT,
                 minHeight: '100vh',
@@ -84,17 +79,21 @@ export default function Layout() {
                 overflowX: 'hidden',
             }}>
                 <AntLayout hasSider style={{ marginLeft: 0, minHeight: 'calc(100vh - 64px)', overflowX: 'hidden' }}>
-                    <Sidebar />
+                    {!isMobile && (
+                        <Sidebar
+                            collapsed={sidebarCollapsed}
+                            onToggle={() => setSidebarCollapsed((value) => !value)}
+                        />
+                    )}
                     <Content 
                         style={{ 
-                            marginLeft: isMobile ? 0 : sidebarWidth,
                             padding: '24px',
                             minHeight: 'calc(100vh - 64px)',
                             background: '#f5f5f5',
-                            transition: 'margin-left 0.25s ease',
                             boxSizing: 'border-box',
                             overflowX: 'auto',
                         }}
+                        data-sider={sidebarState}
                     >
                         <div style={{
                             background: '#ffffff',

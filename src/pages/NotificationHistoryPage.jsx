@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Table, Select, Space, Tag, Button, DatePicker, Skeleton, message, Tooltip, Card, Typography, Row, Col, Badge, Statistic, Divider, Input, Empty, Modal, Descriptions } from 'antd';
+import { useEffect, useState } from 'react';
+import { Table, Select, Space, Tag, Button, DatePicker, Skeleton, message, Tooltip, Card, Typography, Row, Col, Statistic, Divider, Modal, Descriptions, Alert } from 'antd';
 import { ReloadOutlined, SearchOutlined, FilterOutlined, ClearOutlined, EyeOutlined, ClockCircleOutlined, BellOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useIntl } from 'react-intl';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useNotificationStore from '../store/useNotificationStore';
 import useAuthStore from '../store/useAuthStore';
-import { EVENT_TYPES, CHANNELS, STATUS_MAP, STATUS_COLOR, EVENT_TYPE_COLORS, EVENT_TYPE_ICONS, CHANNEL_COLORS, STATUS_DETAILS, MODERN_THEME } from '../utils/constants';
+import { EVENT_TYPES, CHANNELS, STATUS_MAP, EVENT_TYPE_COLORS, EVENT_TYPE_ICONS, CHANNEL_COLORS, STATUS_DETAILS, MODERN_THEME } from '../utils/constants';
 import { formatDateTime } from '../utils/formatters';
 import { enumLabel } from '../utils/labels';
 import { listCustomers } from '../api/customerApi';
@@ -90,10 +90,10 @@ export default function NotificationHistoryPage() {
     const {
         notifications,
         loading,
+        listError,
         pagination,
         fetchNotifications,
         setFilters,
-        filters,
     } = useNotificationStore();
 
     // 重投是运维动作：后端已限制为 ADMIN，前端据此隐藏按钮（普通用户看不到必然 403 的操作）
@@ -106,8 +106,6 @@ export default function NotificationHistoryPage() {
         startDate: null,
         endDate: null,
     });
-
-    const [searchText, setSearchText] = useState('');
 
     // 详情弹窗：以前「查看」按钮没有 onClick，是个死操作
     const [detail, setDetail] = useState(null);
@@ -164,7 +162,6 @@ export default function NotificationHistoryPage() {
             startDate: null,
             endDate: null,
         });
-        setSearchText('');
         setFilters({});
         fetchNotifications(0, 10);
     };
@@ -250,8 +247,6 @@ export default function NotificationHistoryPage() {
                     </span>
                 );
             },
-            filters: Object.keys(EVENT_TYPES).map((k) => ({ text: enumLabel(intl, 'eventType', k), value: k })),
-            onFilter: (value, record) => (record.eventType || record.event_type) === value,
         },
         {
             title: intl.formatMessage({ id: 'history.channel' }),
@@ -276,8 +271,6 @@ export default function NotificationHistoryPage() {
                     <span>{enumLabel(intl, 'status', v)}</span>
                 </span>
             ),
-            filters: Object.keys(STATUS_MAP).map((k) => ({ text: enumLabel(intl, 'status', k), value: k })),
-            onFilter: (value, record) => record.status === value,
         },
         {
             title: intl.formatMessage({ id: 'history.reason' }),
@@ -373,12 +366,14 @@ export default function NotificationHistoryPage() {
                         </Text>
                     </Col>
                     <Col>
-                        <Space>
-                            <Badge count={pagination.total} showZero style={{ backgroundColor: MODERN_THEME.colors.primary }}>
-                                <Button icon={<BellOutlined />} style={styles.filterButton}>
-                                    {intl.formatMessage({ id: 'history.totalRecords' })}
-                                </Button>
-                            </Badge>
+                        {/* 纯展示，不是按钮：Badge 的 count 会把 487 显示成 99+，所以直接出数字 */}
+                        <Space align="center">
+                            <BellOutlined style={{ fontSize: '18px', color: MODERN_THEME.colors.primary }} />
+                            <Statistic
+                                title={intl.formatMessage({ id: 'history.totalRecords' })}
+                                value={pagination.total}
+                                valueStyle={{ fontSize: '20px', color: MODERN_THEME.colors.textPrimary }}
+                            />
                         </Space>
                     </Col>
                 </Row>
@@ -503,15 +498,36 @@ export default function NotificationHistoryPage() {
                 </Space>
             </Card>
 
+            {listError && (
+                <Alert
+                    type="error"
+                    showIcon
+                    style={{ marginBottom: '16px' }}
+                    message={intl.formatMessage({ id: 'history.loadFailed' })}
+                    action={
+                        <Button
+                            size="small"
+                            icon={<ReloadOutlined />}
+                            onClick={() => fetchNotifications(pagination.page, pagination.size)}
+                        >
+                            {intl.formatMessage({ id: 'history.retry' })}
+                        </Button>
+                    }
+                />
+            )}
             {loading ? (
                 <Card style={styles.tableCard}>
                     <Skeleton active paragraph={{ rows: 8 }} />
                 </Card>
             ) : (
                 <>
-                    <Row gutter={16} style={{ marginBottom: '24px' }}>
-                        {Object.entries(eventTypeStats).slice(0, 5).map(([type, count]) => (
-                            <Col span={4.8} key={type}>
+                    {/* 这些数字是从当前页算出来的，标题必须把这一点说出来，否则读起来像全库统计（PRD-54②） */}
+                    <Text strong style={{ display: 'block', marginBottom: '8px', color: MODERN_THEME.colors.textSecondary }}>
+                        {intl.formatMessage({ id: 'history.pageStatsTitle' })}
+                    </Text>
+                    <Row gutter={[16, 16]} style={{ marginBottom: '24px' }}>
+                        {Object.entries(eventTypeStats).map(([type, count]) => (
+                            <Col flex="1 1 160px" key={type}>
                                 <Card style={styles.statsCard} hoverable>
                                     <Statistic
                                         title={
@@ -597,6 +613,12 @@ export default function NotificationHistoryPage() {
                         <Descriptions.Item label={intl.formatMessage({ id: 'history.channel' })}>
                             {enumLabel(intl, 'channel', detail.channel)}
                         </Descriptions.Item>
+                        {/* 直发（PRD-51）的地址根本不在客户档案里，不显示出来就没法解释这行发去了哪 */}
+                        {detail.recipient && (
+                            <Descriptions.Item label={intl.formatMessage({ id: 'history.recipient' })}>
+                                <Text copyable style={{ fontSize: '12px' }}>{detail.recipient}</Text>
+                            </Descriptions.Item>
+                        )}
                         <Descriptions.Item label={intl.formatMessage({ id: 'history.status' })}>
                             {STATUS_DETAILS[detail.status]?.icon} {enumLabel(intl, 'status', detail.status)}
                         </Descriptions.Item>

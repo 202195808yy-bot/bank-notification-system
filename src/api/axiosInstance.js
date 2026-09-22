@@ -1,15 +1,6 @@
 import axios from 'axios';
 import { message } from 'antd';
-import messages from '../i18n/messages';
-
-// 拦截器在 React 树之外，拿不到 useIntl，只能按 localStorage 的语言直接查语料
-const t = (id) => {
-    const locale = localStorage.getItem('locale') || 'ru';
-    return messages[locale]?.[id] ?? messages.ru[id];
-};
-
-// 后端业务错误统一返回 {code: '...'}，语料里对应 key 为 error.code.<CODE>；没有则回落到通用文案
-const codeText = (code) => (code ? t(`error.code.${code}`) : undefined);
+import { messageText as t, errorText as codeText } from '../i18n';
 
 const instance = axios.create({
     baseURL: '/api',
@@ -83,6 +74,10 @@ instance.interceptors.response.use(
             case 404: message.error(text || t('error.404')); break;
             case 409: message.error(text || msg || t('error.409')); break;
             case 500: message.error(t('error.500')); break;
+            // 502/503 = "上游活着但暂时不能用"（如 Kafka 不可达时事件入口返回的 EVENT_PUBLISH_FAILED）。
+            // 走 default 会显示成一句笼统的网络错误，用户不知道该重试还是该放弃。
+            case 502:
+            case 503: message.error(text || msg || t('error.500')); break;
             default: message.error(t('error.network'));
         }
         return Promise.reject(error);

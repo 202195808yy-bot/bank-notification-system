@@ -1,9 +1,5 @@
 import axios from './axiosInstance';
 
-export function login(credentials) {
-  return axios.post('/auth/login', credentials).then(res => res.data);
-}
-
 export function getCurrentCustomer() {
   return axios.get('/customers/me').then(res => res.data);
 }

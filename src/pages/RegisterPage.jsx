@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Form, Input, Button, Alert, Typography } from 'antd';
 import { Link, useNavigate } from 'react-router-dom';
 import { useIntl } from 'react-intl';
 import axios from '../api/axiosInstance';
+import { errorText } from '../i18n';
 import LocaleSwitcher from '../components/LocaleSwitcher';
 
 const { Title } = Typography;
@@ -22,6 +23,9 @@ export default function RegisterPage() {
       password: values.password || '',
       // 免打扰时段要按客户自己的钟点判定；注册时把浏览器报告的 IANA 时区一并存下来
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      // 正文语言同样采一次（PRD-56）：优先客户在这个页面上实际选的界面语言，退回浏览器语言。
+      // 后端认不出来就不写，所以这里不需要做映射
+      locale: localStorage.getItem('locale') || navigator.language,
     };
 
     if (!payload.password) {
@@ -32,9 +36,12 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await axios.post('/auth/register', payload);
-      navigate('/login', { state: { registered: true } });
+      navigate('/login');
     } catch (e) {
-      setError(e.response?.data?.message || intl.formatMessage({ id: 'register.registrationFailed' }));
+      // 优先按后端 {code} 译成当前语言；没有 code 才退后端 message，再退通用文案
+      const data = e.response?.data;
+      setError(errorText(data?.code) || data?.message
+        || intl.formatMessage({ id: 'register.registrationFailed' }));
     } finally {
       setLoading(false);
     }

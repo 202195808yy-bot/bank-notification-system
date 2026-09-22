@@ -296,6 +296,16 @@ export default function NotificationDropdown({ onClose }) {
                         }}>
                           {enumLabel(intl, 'status', notification.status)}
                         </span>
+                        {/* 面板里不能只有一个红点：客户当场就要知道为什么失败（历史页早就有这列）。
+                            SENT 也照样显示，否则 *_MOCK_SEND 这种"已发送但其实没发"又只剩一个绿色对勾。 */}
+                        {notification.reason && (
+                          <span style={{
+                            fontSize: '11px',
+                            color: notification.status === 'SENT' ? '#6b7280' : typeInfo.color,
+                          }}>
+                            {enumLabel(intl, 'reason', notification.reason)}
+                          </span>
+                        )}
                         <span style={{
                           fontSize: '11px',
                           color: '#9ca3af',

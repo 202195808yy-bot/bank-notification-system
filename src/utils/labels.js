@@ -17,9 +17,3 @@ export function enumLabel(intl, group, key) {
     });
 }
 
-export function enumOptions(intl, group) {
-    return Object.keys(GROUPS[group] ?? {}).map((value) => ({
-        value,
-        label: enumLabel(intl, group, value),
-    }));
-}

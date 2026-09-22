@@ -6,6 +6,9 @@ const useNotificationStore = create((set, get) => ({
   notifications: [],
   stats: null,
   loading: false,
+  // 列表加载失败必须与"没有通知"区分开：此前 catch 只把 loading 置回 false，
+  // 于是网关 502 / 令牌过期在界面上渲染成一屏"暂无数据"（PRD-54①）
+  listError: false,
   pagination: { page: 0, size: 10, total: 0 },
   filters: {},
 
@@ -30,9 +33,10 @@ const useNotificationStore = create((set, get) => ({
           total: data.totalElements ?? 0,
         },
         loading: false,
+        listError: false,
       });
     } catch (e) {
-      set({ loading: false });
+      set({ loading: false, listError: true });
     }
   },
 
@@ -73,8 +77,18 @@ const useNotificationStore = create((set, get) => ({
   // 下拉面板只列真正投递过的通知；SKIPPED / FAILED_VALIDATION 属于运维可见信息，留在历史页看。
   // mine=true 是必须的：管理员在列表端点上默认能看全行，否则铃铛会列出别人的通知，
   // 点已读时被归属校验拒绝成 403。
-  // silent=true 给轮询用：不置 latestLoading，否则面板每 15 秒闪一次骨架。
-  // 返回值是这一页里最大的通知 id（请求失败返回 null），调用方拿它判断"有没有新消息"。
+  // silent=true 给轮询/推送用：不置 latestLoading，否则面板每刷新一次闪一次骨架。
+  //
+  // ⚠️ 这是"有没有新消息"的唯一判定入口：15 秒轮询与 SSE 推送都走这里，
+  // 所以响的那一帧和列表更新的那一帧必然是同一帧（此前两条路径各判各的，表现为"叮了但看不到"）。
+  // 判定看的是**状态转入 SENT**，不是"这一行是不是新面孔"：
+  //   · PENDING 本身不响 —— 那一刻消息还没发出去，响了就是假承诺；
+  //   · 但一行先以 PENDING 被看见、之后变 SENT **必须响** —— 否则"客户点开过一次铃铛"
+  //     就永久吃掉这条消息的提示音（EMAIL 的 PENDING 停留 p95 约 9 秒，而轮询 15 秒，是常态不是竞态）；
+  //   · SKIPPED / FAILED_VALIDATION 不响 —— 被抑制的通知不该用铃声打扰客户。
+  // 返回 true 表示这一批里有真送达的新消息；调用方据此决定响不响（一次事件多渠道只响一声）。
+  bellSeen: null,
+
   fetchLatest: async ({ silent = false } = {}) => {
     if (!silent) set({ latestLoading: true });
     let content;
@@ -85,11 +99,28 @@ const useNotificationStore = create((set, get) => ({
       content = data.content || [];
     } catch (e) {
       if (!silent) set({ latestLoading: false });
-      return null;
+      return false;
     }
     set({ latest: content, latestLoading: false });
     get().fetchUnreadCount();
-    return content.reduce((max, n) => Math.max(max, n.id ?? 0), 0);
+    let seen = get().bellSeen;
+    if (!seen) {
+      // 首帧只建立基线：刷新页面不能把历史消息全响一遍
+      set({ bellSeen: new Map(content.map((n) => [n.id, n.status])) });
+      return false;
+    }
+    let delivered = false;
+    content.forEach((n) => {
+      if (seen.get(n.id) === n.status) return;
+      seen.set(n.id, n.status);
+      if (n.status === 'SENT') delivered = true;
+    });
+    // 只留当前窗口里的行：本列表是最多 5 条"最新通知"，被挤出去的旧行不会再回来，
+    // 而"回来时状态未知"只会让它再响一次，不是漏响。
+    seen.forEach((_, id) => {
+      if (!content.some((n) => n.id === id)) seen.delete(id);
+    });
+    return delivered;
   },
 
   markRead: async (id) => {

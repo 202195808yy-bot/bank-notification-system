@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Table, Switch, Button, Modal, message, Form, Card, Space, Tooltip, Alert } from 'antd';
 import { PlusOutlined, EditOutlined, InfoCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import { useIntl } from 'react-intl';

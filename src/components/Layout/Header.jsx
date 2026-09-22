@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout, Dropdown, Avatar, Badge } from 'antd';
 import { 
   BellOutlined, 
-  DownOutlined, 
   BankOutlined, 
   UserOutlined,
   MenuOutlined,
@@ -10,24 +9,32 @@ import {
   CaretRightOutlined
 } from '@ant-design/icons';
 import NotificationDropdown from './NotificationDropdown';
+import LocaleSwitcher from '../LocaleSwitcher';
+import { headerMenu, visibleMenu } from './menu';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useIntl } from 'react-intl';
 import useAuthStore from '../../store/useAuthStore';
 import useNotificationStore from '../../store/useNotificationStore';
 import { playNotifySound } from '../../utils/notifySound';
+import { openNotificationStream } from '../../utils/notificationStream';
 
 const { Header: AntHeader } = Layout;
 
-const NAV_ITEMS = [
-  { key: '/dashboard', id: 'menu.dashboard' },
-  { key: '/notifications', id: 'menu.history' },
-  { key: '/preferences', id: 'menu.preferences' },
-];
-
-/** 后端没有 WebSocket/SSE，红点只能靠轮询；15 秒是"看得出实时"和"不给网关白刷"的折中 */
+/**
+ * 实时性有两条路：SSE 推送（正常路径，实测后端投递完成后 ~百毫秒内到达）
+ * 与 15 秒轮询（SSE 不可用时的兜底）。轮询刻意没有关掉 ——
+ * 反代若不支持流式响应，关掉轮询就等于"再也不更新"。
+ */
 const POLL_INTERVAL_MS = 15000;
 
-export default function Header() {
+/** 一次事件按渠道扇出会有多帧推送；合并窗口内只刷新一次、只响一声 */
+const STREAM_DEBOUNCE_MS = 250;
+
+/**
+ * isMobile 由 Layout 统一判定后下发：这里和 Sidebar 都要用同一条断点，
+ * 各自 addEventListener 会出现两个组件对"是不是手机"意见不一致的瞬间。
+ */
+export default function Header({ isMobile }) {
     const { user, logout } = useAuthStore();
     const unreadCount = useNotificationStore((state) => state.unreadCount);
     const fetchUnreadCount = useNotificationStore((state) => state.fetchUnreadCount);
@@ -35,65 +42,49 @@ export default function Header() {
     const navigate = useNavigate();
     const location = useLocation();
     const intl = useIntl();
-    const [currentLocale, setCurrentLocale] = useState(localStorage.getItem('locale') || 'ru');
-    const [isMobile, setIsMobile] = useState(false);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isNotificationOpen, setIsNotificationOpen] = useState(false);
 
     // 以前这里只有一次 fetchUnreadCount()：Header 常驻在 Layout 里、切页面不会重挂载，
     // 所以用户停在界面上时红点永远不动，只有点开铃铛才刷新。
     useEffect(() => {
-        let newestSeenId = null;
+        let alive = true;
+        let debounce = null;
 
-        const poll = async () => {
-            const newestId = await fetchLatest({ silent: true });
-            if (newestId === null) return;
-            if (newestSeenId === null) {
-                newestSeenId = newestId;          // 首帧只建立基线，不给历史消息补响
-                return;
-            }
-            if (newestId > newestSeenId) {
-                newestSeenId = newestId;
-                playNotifySound();
-            }
+        const refresh = async () => {
+            const delivered = await fetchLatest({ silent: true });
+            if (alive && delivered) playNotifySound();
         };
 
-        poll();
-        const timer = setInterval(poll, POLL_INTERVAL_MS);
+        refresh();
+        // 兜底轮询：SSE 被代理/网络策略掐掉时界面仍会更新（判定入口与推送是同一个，不会双响）
+        const timer = setInterval(refresh, POLL_INTERVAL_MS);
         const onVisible = () => {
-            if (document.visibilityState === 'visible') poll();
+            // 后台标签页的定时器会被浏览器节流到约 1 次/分钟，切回来必须立刻补一次
+            if (document.visibilityState === 'visible') refresh();
         };
         document.addEventListener('visibilitychange', onVisible);
+
+        const closeStream = openNotificationStream({
+            // 一次事件按渠道扇出会有多条推送（实测 3 个渠道 3 帧），合并成一次刷新 + 一声提示
+            onNotification: () => {
+                clearTimeout(debounce);
+                debounce = setTimeout(refresh, STREAM_DEBOUNCE_MS);
+            },
+        });
+
         return () => {
+            alive = false;
+            clearTimeout(debounce);
             clearInterval(timer);
             document.removeEventListener('visibilitychange', onVisible);
+            closeStream();
         };
     }, [fetchLatest]);
 
-    useEffect(() => {
-        const checkMobile = () => {
-            const mobile = window.innerWidth < 768;
-            setIsMobile(mobile);
-            if (mobile) {
-                setIsMenuOpen(false);
-            }
-        };
-        checkMobile();
-        window.addEventListener('resize', checkMobile);
-        return () => window.removeEventListener('resize', checkMobile);
-    }, []);
-
-    const handleLocaleChange = (locale) => {
-        setCurrentLocale(locale);
-        localStorage.setItem('locale', locale);
-        window.location.reload();
-    };
-
-    const localeMenuItems = [
-        { key: 'zh', label: '中文', onClick: () => handleLocaleChange('zh') },
-        { key: 'en', label: 'English', onClick: () => handleLocaleChange('en') },
-        { key: 'ru', label: 'Русский', onClick: () => handleLocaleChange('ru') },
-    ];
+    const navItems = headerMenu(user?.role);
+    // 抽屉是移动端唯一的导航入口，所以它必须是完整的角色菜单，不能再另列三份清单
+    const drawerItems = visibleMenu(user?.role);
 
     const userMenuItems = [
         { 
@@ -115,14 +106,6 @@ export default function Header() {
         },
     ];
 
-    const getLocaleLabel = (locale) => {
-        switch (locale) {
-            case 'zh': return '中文';
-            case 'en': return 'English';
-            default: return 'Русский';
-        }
-    };
-
     const currentPath = location.pathname;
 
     return (
@@ -140,8 +123,8 @@ export default function Header() {
                     left: 0,
                     right: 0,
                     zIndex: 999,
-                    height: '64px',
-                    minHeight: '64px',
+                    height: 'var(--layout-header-height)',
+                    minHeight: 'var(--layout-header-height)',
                     borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
                     transition: 'all 0.3s ease',
                 }}
@@ -281,7 +264,7 @@ export default function Header() {
                         whiteSpace: 'nowrap',
                     }}
                 >
-                    {NAV_ITEMS.map((item) => (
+                    {navItems.map((item) => (
                         <button
                             key={item.key}
                             onClick={() => navigate(item.key)}
@@ -339,51 +322,7 @@ export default function Header() {
                     gap: '12px',
                     flexShrink: 0,
                 }}>
-                    <Dropdown 
-                        menu={{ 
-                            items: localeMenuItems,
-                            dropdownRender: (menu) => (
-                                <div 
-                                    style={{
-                                        background: '#fff',
-                                        borderRadius: '12px',
-                                        padding: '8px',
-                                        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.1)',
-                                        border: '1px solid rgba(0, 0, 0, 0.08)',
-                                        animation: 'slideDown 0.2s ease',
-                                    }}
-                                >
-                                    {menu}
-                                </div>
-                            ),
-                        }} 
-                        placement="bottomRight"
-                    >
-                        <div style={{
-                            cursor: 'pointer',
-                            padding: '8px 12px',
-                            borderRadius: '8px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            transition: 'all 0.2s ease',
-                            minWidth: '72px',
-                            justifyContent: 'center',
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
-                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                        >
-                            <span style={{ 
-                                fontSize: '13px', 
-                                color: '#374151', 
-                                fontWeight: 500,
-                                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-                            }}>
-                                {getLocaleLabel(currentLocale)}
-                            </span>
-                            <DownOutlined style={{ fontSize: '12px', color: '#9ca3af' }} />
-                        </div>
-                    </Dropdown>
+                    <LocaleSwitcher variant="plain" />
 
                     <Dropdown
                         open={isNotificationOpen}
@@ -511,17 +450,20 @@ export default function Header() {
                 </div>
             </AntHeader>
 
+            {/* 刻意"开了才渲染"而不是 display:none：桌面端遗留的 isMenuOpen 会把抽屉压在正文上 */}
+            {isMobile && isMenuOpen && (
             <div 
                 style={{
                     position: 'fixed',
-                    top: '64px',
+                    top: 'var(--layout-header-height)',
                     left: 0,
                     right: 0,
                     background: '#fff',
                     boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
                     padding: '16px 24px',
                     zIndex: 998,
-                    display: isMenuOpen ? 'block' : 'none',
+                    maxHeight: 'calc(100vh - var(--layout-header-height))',
+                    overflowY: 'auto',
                     animation: 'slideDown 0.25s ease',
                 }}
             >
@@ -530,7 +472,9 @@ export default function Header() {
                     flexDirection: 'column',
                     gap: '8px',
                 }}>
-                    {NAV_ITEMS.map((item) => (
+                    {drawerItems.map((item) => {
+                        const IconComponent = item.icon;
+                        return (
                         <button
                             key={item.key}
                             onClick={() => {
@@ -558,14 +502,17 @@ export default function Header() {
                             }}
                             onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(22, 119, 255, 0.08)'}
                         >
-                            {intl.formatMessage({ id: item.id })}
+                            <IconComponent style={{ fontSize: '16px' }} />
+                            <span style={{ flex: 1 }}>{intl.formatMessage({ id: item.id })}</span>
                             {currentPath === item.key && (
                                 <CaretRightOutlined style={{ fontSize: '16px' }} />
                             )}
                         </button>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
+            )}
 
             <style>{`
                 @keyframes slideDown {
@@ -576,14 +523,6 @@ export default function Header() {
                     to {
                         opacity: 1;
                         transform: translateY(0);
-                    }
-                }
-                @keyframes pulse {
-                    0%, 100% {
-                        opacity: 1;
-                    }
-                    50% {
-                        opacity: 0.5;
                     }
                 }
             `}</style>

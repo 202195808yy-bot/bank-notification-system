@@ -1,17 +1,17 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { 
-  Card, Button, Form, Input, Select, InputNumber, Typography, 
-  Divider, Tag, Empty, message, Space, Progress, Alert, Row, Col,
-  Tooltip, Spin
+  Card, Button, Form, Input, Select, Typography, 
+  Divider, Tag, Empty, message, Space, Progress, Alert, Row, Col
 } from 'antd';
 import { 
   SendOutlined, ReloadOutlined, RocketOutlined, TeamOutlined, 
   UserOutlined, ExclamationCircleOutlined, FileTextOutlined,
   LockOutlined, CheckCircleOutlined, CloseCircleOutlined,
-  CreditCardOutlined
+  CreditCardOutlined, GiftOutlined
 } from '@ant-design/icons';
 import { useIntl } from 'react-intl';
 import axios from '../api/axiosInstance';
+import { errorText } from '../i18n';
 import { listCustomers, getEventReach } from '../api/customerApi';
 import { getTemplates } from '../api/templateApi';
 import { EVENT_TYPE_COLORS } from '../utils/constants';
@@ -21,7 +21,6 @@ const { Option } = Select;
 
 const eventTemplates = {
   TRANSACTION: {
-    account: '1234567890',
     amount: 1000.50,
     // 库里的 TRANSACTION 模板正文用到 {{balance}}；样例载荷缺这个键，
     // 以前会把占位符原样渲染进通知发给客户（PRD-35）。
@@ -32,7 +31,6 @@ const eventTemplates = {
     merchant: '超市购物'
   },
   RISK_ALERT: {
-    account: '1234567890',
     riskLevel: 'HIGH',
     riskType: '异地登录',
     ipAddress: '192.168.1.100',
@@ -42,8 +40,7 @@ const eventTemplates = {
   BILL: {
     billType: '信用卡还款',
     amount: 5000.00,
-    dueDate: '2024-02-15',
-    account: '****6789'
+    dueDate: '2024-02-15'
   },
   LOGIN: {
     ipAddress: '192.168.1.1',
@@ -53,7 +50,10 @@ const eventTemplates = {
   SECURITY: {
     alertType: '密码修改',
     timestamp: new Date().toISOString()
-  }
+  },
+  // 库里 PROMOTION 的 9 行正文是无变量的固定营销文案，所以样例载荷就是空对象：
+  // 填任何键都不会出现在通知里（此前这一类在界面上根本选不到）。
+  PROMOTION: {}
 };
 
 const eventIcons = {
@@ -61,14 +61,27 @@ const eventIcons = {
   RISK_ALERT: ExclamationCircleOutlined,
   BILL: FileTextOutlined,
   LOGIN: LockOutlined,
-  SECURITY: CheckCircleOutlined
+  SECURITY: CheckCircleOutlined,
+  PROMOTION: GiftOutlined
 };
 
 // 与后端 TemplateRenderService.UNRESOLVED_PLACEHOLDER 同一套语法：载荷里缺哪个键，
 // 派发时就会被 N19 拦成 FAILED_VALIDATION/VARIABLE_MISSING，所以录入时就先拦住（PRD-35 ①）。
 const PLACEHOLDER = /\{\{\s*([\w.]+)\s*\}\}/g;
 
-const variablesOf = (templates, eventType) => {
+// 界面语言（react-intl 的短码）→ 模板语料里的 locale 三段
+const UI_TO_TEMPLATE_LOCALE = { ru: 'ru_RU', en: 'en_US', zh: 'zh_CN' };
+const TEMPLATE_LOCALES = ['ru_RU', 'en_US', 'zh_CN'];
+const TEMPLATE_LOCALE_LABELS = { ru_RU: 'Русский', en_US: 'English', zh_CN: '中文' };
+// 与后端 EventTransformer 的 EMAIL / PHONE 同一套判据，差别只在这里提前拦一次
+const DIRECT_EMAIL = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]{2,}$/;
+const DIRECT_PHONE = /^\+?[0-9][0-9 \-()]{6,18}$/;
+
+// {{account}} 不在这里要：派发端按收件人自己解析（档案账号 → 载荷 → 收件地址掩码）。
+// 让管理员在载荷里填一个账号，等于把同一个账号投给该事件命中的所有收件人（PRD-57/N60）。
+const DISPATCH_RESOLVED_VARS = ['account'];
+
+const templateVarsOf = (templates, eventType) => {
   const names = new Set();
   templates
     .filter((tpl) => tpl && tpl.eventType === eventType)
@@ -83,6 +96,9 @@ const variablesOf = (templates, eventType) => {
     });
   return [...names];
 };
+
+const variablesOf = (templates, eventType) =>
+  templateVarsOf(templates, eventType).filter((name) => !DISPATCH_RESOLVED_VARS.includes(name));
 
 export default function EventSenderPage() {
   const intl = useIntl();
@@ -105,6 +121,15 @@ export default function EventSenderPage() {
 
   // 模板正文里用到的变量集，用来在录入时就拦住缺变量的事件（否则要到派发期才失败）
   const [templates, setTemplates] = useState([]);
+
+  // 「输入谁的手机号/邮箱就发给谁」（PRD-51/N47）：填了就**只发这一个地址**，
+  // 后端不看订阅偏好、不看客户档案里存没存这个号码、也不判免打扰时段。
+  // 渠道由地址形状决定（含 @ 即邮件），语言必须显式选 —— 该地址未必属于任何客户，
+  // 没有 locale 可推断，而模板语料是 ru_RU / en_US / zh_CN 三本。
+  const [directRecipient, setDirectRecipient] = useState('');
+  const [directLocale, setDirectLocale] = useState(
+    () => UI_TO_TEMPLATE_LOCALE[intl.locale] || 'ru_RU'
+  );
 
   // 「这个事件类型到底有几个人收得到」——派发完才能在历史页看到 NOT_SUBSCRIBED，
   // 用户的第一反应就是"消息丢了"。这里把同一份判断前移到点发送之前（PRD-41）。
@@ -175,6 +200,9 @@ export default function EventSenderPage() {
   }, [customData]);
 
   const requiredVars = variablesOf(templates, eventType);
+  // 模板用到但由派发端解析的变量（account）：不要求管理员填，但要说明值从哪来，
+  // 否则"这条通知里的账号是谁的"没人答得上来（PRD-57）
+  const autoResolvedVars = templateVarsOf(templates, eventType).filter((name) => DISPATCH_RESOLVED_VARS.includes(name));
   const templatesOf = (type) => templates.filter((tpl) => tpl && tpl.eventType === type);
 
   /**
@@ -225,6 +253,13 @@ export default function EventSenderPage() {
 
   const pendingMissingVars = missingVars();
 
+  // 直发模式的派生量：渠道按形状推断，格式不合法时按钮直接禁用并把原因写在必填星号旁
+  const directTarget = directRecipient.trim();
+  const directMode = directTarget.length > 0;
+  const directChannel = directMode ? (directTarget.includes('@') ? 'EMAIL' : 'SMS') : null;
+  const directInvalid = directMode
+    && !(directChannel === 'EMAIL' ? DIRECT_EMAIL.test(directTarget) : DIRECT_PHONE.test(directTarget));
+
   const handleEventTypeChange = (value) => {
     setEventType(value);
     if (eventTemplates[value]) {
@@ -253,11 +288,154 @@ export default function EventSenderPage() {
       });
       return { customerId, success: true };
     } catch (error) {
-      return { customerId, success: false, error: error.response?.data?.message || error.message };
+      // 后端业务错误现在是 {code: '…'}（400 校验失败 / 503 没能进队列）。
+      // 译码这件事全站只有一处实现（i18n 的 errorText），此前这里另写了一份查表逻辑
+      const data = error.response?.data;
+      return { customerId, success: false, error: errorText(data?.code) || data?.message || error.message };
     }
   };
 
+  /**
+   * 直发（PRD-51/N47）：一次一个事件、一个手填地址。
+   * 请求体里**故意不带 customerId** —— 后端拿网关注入的 X-User-Id 作为该通知行的归属人，
+   * 于是这条记录在历史页里既看得见、又标得清是"谁发的、发去了哪个地址"。
+   */
+  const sendDirectEvent = async (dataOverride, typeOverride) => {
+    if (!isValidJson) {
+      message.error(intl.formatMessage({ id: 'event.invalidJson' }));
+      return;
+    }
+    if (directInvalid) {
+      message.error(intl.formatMessage(
+        { id: 'event.directInvalid' },
+        { channel: intl.formatMessage({ id: `enum.channel.${directChannel}` }) }
+      ));
+      return;
+    }
+    const vars = dataOverride ?? JSON.parse(customData || '{}');
+    const type = typeOverride ?? eventType;
+    const missing = typeOverride
+      ? variablesOf(templates, typeOverride).filter((name) => !(name in vars))
+      : missingVars(vars);
+    if (blockMissingVars(missing)) return;
+
+    const payload = {
+      eventId: 'evt-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+      eventType: type,
+      directRecipient: directTarget,
+      directChannel: directChannel,
+      directLocale: directLocale,
+      ...vars
+    };
+
+    setSending(true);
+    setResponse(null);
+    const result = await sendSingleEvent(null, payload);
+    if (!mounted) return;
+
+    setHistory(prev => [{
+      timestamp: new Date().toLocaleString(),
+      eventType: type,
+      customerId: null,
+      target: `${directTarget} · ${directChannel}`,
+      eventId: payload.eventId,
+      status: result.success ? 'SUCCESS' : 'FAILED'
+    }, ...prev].slice(0, 50));
+
+    setResponse({
+      success: result.success,
+      data: { total: 1, success: result.success ? 1 : 0, failed: result.success ? 0 : 1 },
+      message: result.success
+        ? intl.formatMessage({ id: 'event.directSent' }, { recipient: directTarget })
+        : `${intl.formatMessage({ id: 'event.directFailed' })}: ${result.error}`
+    });
+    setSending(false);
+  };
+
+  // 主表单的批量发送与「快速发送」按钮共用这一段：此前是两份逐字复制的循环，
+  // 任何一处单独改动都会让两个入口的行为不一致（历史列表字段以前就是这么错开的）
+  const sendToSelectedCustomers = async (type, data) => {
+    setSending(true);
+    setBatchProgress({ current: 0, total: selectedCustomers.length, results: [] });
+    setResponse(null);
+
+    const results = [];
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < selectedCustomers.length; i++) {
+      if (!mounted) break;
+      
+      const customerId = selectedCustomers[i];
+      const payload = {
+        eventId: 'evt-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+        eventType: type,
+        customerId: customerId,
+        ...data
+      };
+
+      const result = await sendSingleEvent(customerId, payload);
+      results.push(result);
+
+      if (result.success) {
+        successCount++;
+      } else {
+        failCount++;
+      }
+
+      setBatchProgress({
+        current: i + 1,
+        total: selectedCustomers.length,
+        results: results
+      });
+
+      setHistory(prev => [{
+        timestamp: new Date().toLocaleString(),
+        eventType: type,
+        customerId: customerId,
+        eventId: payload.eventId,
+        status: result.success ? 'SUCCESS' : 'FAILED'
+      }, ...prev].slice(0, 50));
+    }
+
+    setSending(false);
+    
+    const newResponse = {
+      success: failCount === 0,
+      data: {
+        total: selectedCustomers.length,
+        success: successCount,
+        failed: failCount
+      },
+      message: failCount === 0 
+        ? intl.formatMessage({ id: 'event.allSentSuccessfully' }) 
+        : intl.formatMessage({ id: 'event.successFailedCount' }, { success: successCount, failed: failCount })
+    };
+    setResponse(newResponse);
+
+    if (failCount === 0) {
+      message.success(`${intl.formatMessage({ id: 'event.sendSuccess' })} - ${successCount} ${intl.formatMessage({ id: 'event.user' })}`);
+    } else {
+      message.warning(intl.formatMessage({ id: 'event.successFailedCount' }, { success: successCount, failed: failCount }));
+    }
+
+    window.dispatchEvent(new CustomEvent('bank-event-sent', {
+      detail: {
+        eventType: type,
+        customerId: selectedCustomers,
+        successCount,
+        failCount,
+        timestamp: new Date()
+      }
+    }));
+  };
+
   const handleBatchSubmit = async () => {
+    if (directMode) {
+      await sendDirectEvent();
+      return;
+    }
+
     if (selectedCustomers.length === 0) {
       message.error(intl.formatMessage({ id: 'event.selectAtLeastOneUser' }));
       return;
@@ -270,83 +448,11 @@ export default function EventSenderPage() {
 
     if (blockMissingVars(missingVars())) return;
 
-    setSending(true);
-    setBatchProgress({ current: 0, total: selectedCustomers.length, results: [] });
-    setResponse(null);
-
-    const results = [];
-    let successCount = 0;
-    let failCount = 0;
-
-    for (let i = 0; i < selectedCustomers.length; i++) {
-      if (!mounted) break;
-      
-      const customerId = selectedCustomers[i];
-      const payload = {
-        eventId: 'evt-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-        eventType: eventType,
-        customerId: customerId,
-        ...JSON.parse(customData)
-      };
-
-      const result = await sendSingleEvent(customerId, payload);
-      results.push(result);
-
-      if (result.success) {
-        successCount++;
-      } else {
-        failCount++;
-      }
-
-      setBatchProgress({
-        current: i + 1,
-        total: selectedCustomers.length,
-        results: results
-      });
-
-      setHistory(prev => [{
-        timestamp: new Date().toLocaleString(),
-        eventType: eventType,
-        customerId: customerId,
-        eventId: payload.eventId,
-        status: result.success ? 'SUCCESS' : 'FAILED'
-      }, ...prev].slice(0, 50));
-    }
-
-    setSending(false);
-    
-    const newResponse = {
-      success: failCount === 0,
-      data: {
-        total: selectedCustomers.length,
-        success: successCount,
-        failed: failCount
-      },
-      message: failCount === 0 
-        ? intl.formatMessage({ id: 'event.allSentSuccessfully' }) 
-        : intl.formatMessage({ id: 'event.successFailedCount' }, { success: successCount, failed: failCount })
-    };
-    setResponse(newResponse);
-
-    if (failCount === 0) {
-      message.success(`${intl.formatMessage({ id: 'event.sendSuccess' })} - ${successCount} ${intl.formatMessage({ id: 'event.user' })}`);
-    } else {
-      message.warning(intl.formatMessage({ id: 'event.successFailedCount' }, { success: successCount, failed: failCount }));
-    }
-
-    window.dispatchEvent(new CustomEvent('bank-event-sent', {
-      detail: {
-        eventType,
-        customerId: selectedCustomers,
-        successCount,
-        failCount,
-        timestamp: new Date()
-      }
-    }));
+    await sendToSelectedCustomers(eventType, JSON.parse(customData));
   };
 
   const handleQuickSend = async (type) => {
-    if (selectedCustomers.length === 0) {
+    if (!directMode && selectedCustomers.length === 0) {
       message.warning(intl.formatMessage({ id: 'event.pleaseSelectUsersFirst' }));
       return;
     }
@@ -355,80 +461,18 @@ export default function EventSenderPage() {
     if (blockMissingVars(variablesOf(templates, type).filter((name) => !(name in templateData)))) return;
 
     setEventType(type);
+    // 快速发送按钮绕过了下拉框，不同步表单值的话下拉会停在原类型上（显示与实际发送不一致）
+    form.setFieldValue('eventType', type);
     setCustomData(JSON.stringify(templateData, null, 2));
-    setSending(true);
-    setBatchProgress({ current: 0, total: selectedCustomers.length, results: [] });
-    setResponse(null);
 
-    const results = [];
-    let successCount = 0;
-    let failCount = 0;
-
-    for (let i = 0; i < selectedCustomers.length; i++) {
-      if (!mounted) break;
-      
-      const customerId = selectedCustomers[i];
-      const payload = {
-        eventId: 'evt-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-        eventType: type,
-        customerId: customerId,
-        ...templateData
-      };
-
-      const result = await sendSingleEvent(customerId, payload);
-      results.push(result);
-
-      if (result.success) {
-        successCount++;
-      } else {
-        failCount++;
-      }
-
-      setBatchProgress({
-        current: i + 1,
-        total: selectedCustomers.length,
-        results: results
-      });
-
-      setHistory(prev => [{
-        timestamp: new Date().toLocaleString(),
-        eventType: type,
-        customerId: customerId,
-        eventId: payload.eventId,
-        status: result.success ? 'SUCCESS' : 'FAILED'
-      }, ...prev].slice(0, 50));
+    // 直发模式下"快速发送"同样发给手填地址（用户要的是"输入谁的号码就发给谁"，
+    // 不是"只有大按钮才认这个地址"）
+    if (directMode) {
+      await sendDirectEvent(templateData, type);
+      return;
     }
 
-    setSending(false);
-    
-    const newResponse = {
-      success: failCount === 0,
-      data: {
-        total: selectedCustomers.length,
-        success: successCount,
-        failed: failCount
-      },
-      message: failCount === 0 
-        ? intl.formatMessage({ id: 'event.allSentSuccessfully' }) 
-        : intl.formatMessage({ id: 'event.successFailedCount' }, { success: successCount, failed: failCount })
-    };
-    setResponse(newResponse);
-
-    if (failCount === 0) {
-      message.success(`${intl.formatMessage({ id: 'event.sendSuccess' })} - ${successCount} ${intl.formatMessage({ id: 'event.user' })}`);
-    } else {
-      message.warning(intl.formatMessage({ id: 'event.successFailedCount' }, { success: successCount, failed: failCount }));
-    }
-
-    window.dispatchEvent(new CustomEvent('bank-event-sent', {
-      detail: {
-        eventType: type,
-        customerId: selectedCustomers,
-        successCount,
-        failCount,
-        timestamp: new Date()
-      }
-    }));
+    await sendToSelectedCustomers(type, templateData);
   };
 
   const handleReset = () => {
@@ -437,6 +481,7 @@ export default function EventSenderPage() {
     setCustomData(JSON.stringify(eventTemplates.TRANSACTION, null, 2));
     setResponse(null);
     setSelectedCustomers([]);
+    setDirectRecipient('');
     setBatchProgress({ current: 0, total: 0, results: [] });
   };
 
@@ -577,7 +622,9 @@ export default function EventSenderPage() {
                   type="primary"
                   danger={item.color === 'red'}
                   onClick={() => handleQuickSend(item.type)}
-                  disabled={sending || selectedCustomers.length === 0}
+                  // handleQuickSend 在直发模式下走 sendDirectEvent，压根不读勾选；
+                  // 这里的条件必须与它一致，否则同一屏会出现"大按钮可点、快速按钮全灰"的自相矛盾
+                  disabled={sending || (!directMode && selectedCustomers.length === 0)}
                   icon={getEventIcon(item.type)}
                 >
                   {item.label}
@@ -597,13 +644,16 @@ export default function EventSenderPage() {
             <Form form={form} layout="vertical">
               <Row gutter={16}>
                 <Col xs={24} md={12}>
+                  {/* Form.Item 会用表单 store 的值覆盖子元素的 value，而 store 初始是 undefined
+                      → 界面显示空，而 eventType 状态其实是 TRANSACTION（发到后端的也是 TRANSACTION）。
+                      不写 initialValue 就是"看不见但照发"，必须在界面上如实显示出来。 */}
                   <Form.Item
                     label={intl.formatMessage({ id: 'event.type' })}
                     name="eventType"
+                    initialValue="TRANSACTION"
                     rules={[{ required: true, message: intl.formatMessage({ id: 'event.typeRequired' }) }]}
                   >
                     <Select
-                      value={eventType}
                       onChange={handleEventTypeChange}
                       style={{ width: '100%' }}
                       size="large"
@@ -636,6 +686,12 @@ export default function EventSenderPage() {
                         <Space>
                           <CheckCircleOutlined style={{ color: EVENT_TYPE_COLORS.SECURITY?.text || '#52c41a' }} />
                           SECURITY - {intl.formatMessage({ id: 'event.security' })}
+                        </Space>
+                      </Option>
+                      <Option value="PROMOTION">
+                        <Space>
+                          <GiftOutlined style={{ color: EVENT_TYPE_COLORS.PROMOTION?.text || '#722ed1' }} />
+                          PROMOTION - {intl.formatMessage({ id: 'event.promotion' })}
                         </Space>
                       </Option>
                     </Select>
@@ -683,6 +739,15 @@ export default function EventSenderPage() {
                 />
               )}
 
+              {autoResolvedVars.length > 0 && (
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message={intl.formatMessage({ id: 'event.autoResolvedVars' }, { vars: autoResolvedVars.join(', ') })}
+                />
+              )}
+
               {reachSummary && (
                 <Alert
                   type={reachSummary.deliverable > 0 ? 'info' : 'warning'}
@@ -703,6 +768,41 @@ export default function EventSenderPage() {
                   }
                 />
               )}
+
+              <Divider orientation="left" style={{ marginTop: 24 }}>
+                {intl.formatMessage({ id: 'event.directDivider' })}
+              </Divider>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+                {intl.formatMessage({ id: 'event.directHint' })}
+              </Text>
+              <Space style={{ width: '100%' }} direction="vertical" size="small">
+                <Input
+                  value={directRecipient}
+                  onChange={(e) => setDirectRecipient(e.target.value)}
+                  placeholder={intl.formatMessage({ id: 'event.directPlaceholder' })}
+                  size="large"
+                  style={{ width: '100%', maxWidth: 420 }}
+                  status={directInvalid ? 'error' : undefined}
+                  allowClear
+                />
+                {directMode && (
+                  <Space size="small" wrap>
+                    <Tag color={directInvalid ? 'red' : 'blue'}>
+                      {intl.formatMessage({ id: `enum.channel.${directChannel}` })}
+                    </Tag>
+                    <Select
+                      value={directLocale}
+                      onChange={setDirectLocale}
+                      style={{ width: 160 }}
+                      options={TEMPLATE_LOCALES.map((l) => ({
+                        value: l,
+                        // 语言名按本地语言的惯例显示（与顶栏语言切换器同一口径），不翻译
+                        label: TEMPLATE_LOCALE_LABELS[l]
+                      }))}
+                    />
+                  </Space>
+                )}
+              </Space>
 
               <Form.Item 
                 label={intl.formatMessage({ id: 'event.data' })}
@@ -726,13 +826,15 @@ export default function EventSenderPage() {
                   type="primary"
                   onClick={handleBatchSubmit}
                   loading={sending}
-                  icon={<TeamOutlined />}
-                  disabled={selectedCustomers.length === 0 || !isValidJson}
+                  icon={directMode ? <SendOutlined /> : <TeamOutlined />}
+                  disabled={(directMode ? directInvalid : selectedCustomers.length === 0) || !isValidJson}
                   size="large"
                 >
-                  {sending 
-                    ? intl.formatMessage({ id: 'event.sending' }, { current: batchProgress.current, total: batchProgress.total }) 
-                    : intl.formatMessage({ id: 'event.sendToUsers' }, { count: selectedCustomers.length })}
+                  {sending
+                    ? intl.formatMessage({ id: 'event.sending' }, { current: batchProgress.current, total: batchProgress.total })
+                    : directMode
+                      ? intl.formatMessage({ id: 'event.directSendButton' }, { recipient: directTarget })
+                      : intl.formatMessage({ id: 'event.sendToUsers' }, { count: selectedCustomers.length })}
                 </Button>
                 <Button onClick={handleReset} icon={<ReloadOutlined />} size="large">
                   {intl.formatMessage({ id: 'common.reset' })}
@@ -818,15 +920,19 @@ export default function EventSenderPage() {
                       {item.eventType}
                     </Tag>
                     <Text strong style={{ marginLeft: '12px' }}>
-                      {customerLabel(item.customerId)}
+                      {item.target || customerLabel(item.customerId)}
                     </Text>
                     <Text style={{ marginLeft: '12px', color: 'rgba(0, 0, 0, 0.65)', fontSize: '12px' }}>
                       {item.eventId}
                     </Text>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    {/* 这一列记的是"事件有没有进队列"（HTTP 2xx），不是"客户有没有收到"：
+                        后者要等派发端写终态，在历史页与铃铛里看。标成"成功"会与客户实际没收到同屏矛盾。 */}
                     <Tag color={item.status === 'SUCCESS' ? 'green' : 'red'}>
-                      {item.status === 'SUCCESS' ? intl.formatMessage({ id: 'common.success' }) : intl.formatMessage({ id: 'common.failed' })}
+                      {item.status === 'SUCCESS'
+                        ? intl.formatMessage({ id: 'event.accepted' })
+                        : intl.formatMessage({ id: 'event.acceptFailed' })}
                     </Tag>
                     <Text type="secondary" style={{ fontSize: '12px' }}>
                       {item.timestamp}

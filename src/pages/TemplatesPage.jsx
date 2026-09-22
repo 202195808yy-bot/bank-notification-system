@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tooltip, Typography, message } from 'antd';
 import { useIntl } from 'react-intl';
 import { CHANNELS, DEFAULT_NOTIFICATION_LOCALE, EVENT_TYPES, NOTIFICATION_LOCALES } from '../utils/constants';

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import axios from '../api/axiosInstance';
+import { getTemplates, createTemplate, updateTemplate, deleteTemplate } from '../api/templateApi';
 
 const useTemplateStore = create((set, get) => ({
   templates: [],
@@ -10,28 +10,26 @@ const useTemplateStore = create((set, get) => ({
     set({ loading: true });
     const query = Object.fromEntries(Object.entries(params).filter(([, v]) => v));
     try {
-      const { data } = await axios.get('/templates', { params: query });
-      set({
-        templates: Array.isArray(data) ? data : data.content || [],
-        loading: false,
-      });
+      // 解包（数组 / content / data 三种返回形态）只在 templateApi 里做一次，
+      // 这里不再重复一遍，否则两处口径会分叉
+      set({ templates: await getTemplates(query), loading: false });
     } catch (e) {
       set({ loading: false });
     }
   },
 
   addTemplate: async (values) => {
-    await axios.post('/templates', values);
+    await createTemplate(values);
     get().fetchTemplates();
   },
 
   editTemplate: async (id, values) => {
-    await axios.put(`/templates/${id}`, values);
+    await updateTemplate(id, values);
     get().fetchTemplates();
   },
 
   removeTemplate: async (id) => {
-    await axios.delete(`/templates/${id}`);
+    await deleteTemplate(id);
     get().fetchTemplates();
   },
 }));
