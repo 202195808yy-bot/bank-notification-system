@@ -44,8 +44,12 @@ docker compose up -d --build             # 11 个容器
 
 ## 配置与安全约定
 
-- **仓库里没有任何密钥字面量。** `backend/docker-compose.yml` 一律写 `${VAR:?说明}`，值只在 `backend/.env`（已 gitignore）；
-  缺键时 compose 直接报错退出，而不是带着空 JWT 密钥起来（空密钥 = 任何人都能自签 ADMIN 令牌）。
+- **`backend/docker-compose.yml` 里没有任何密钥字面量。** 三个服务密钥一律写 `${VAR:?说明}`（库口令由 `x-db-pass` 锚点
+  从 `POSTGRES_PASSWORD` 同源分发），值只在 `backend/.env`（已 gitignore）；缺键时 compose 直接报错退出，
+  而不是带着空 JWT 密钥起来（空密钥 = 任何人都能自签 ADMIN 令牌）。
+- ⚠️ 例外：容器外开发（IDEA / `mvn spring-boot:run`）走的 `application.yml` 里，`JWT_SECRET`、`internal.api.token`
+  与 `DB_PASS` 仍带 **dev 默认值**。用 compose 起服务时这三个键一定被 `.env` 覆盖，不受影响；但如果绕开 compose 直接跑服务，
+  必须自己把这三个环境变量设成非默认值，否则等于用仓库里公开可查的密钥签发令牌、用公开口令连库。
 - 渠道凭据（`MAIL_*`、阿里云 `SMS_*`）**只有 `.env` 这一处能生效**，写进 yml / compose 都不会被读到。
 - `backend/docker-compose.yml` 顶部钉了 `name: bank-notification-backend`：命名卷前缀就是 compose 项目名，
   删掉这一行等于换一套空数据卷（表现是"库被清空"）。

@@ -128,16 +128,19 @@ POST /api/events (ADMIN)
 
 | 来源 | 内容 | 备注 |
 | --- | --- | --- |
-| `docker-compose.yml` | 只剩 `${VAR:?说明}` / `${VAR:默认}` 引用，**没有任何字面量密钥**；另有 `DB_*`/`REDIS_*`/`KAFKA_*` 这类容器网络内部地址 | 顶部钉了 `name: bank-notification-backend`：命名卷前缀就是项目名，删这行等于换一套空卷（表现是"库被清空"） |
+| `docker-compose.yml` | 只剩 `${VAR:?说明}` / `${VAR:默认}` 引用与 YAML 锚点，**没有任何字面量密钥**；另有 `DB_*`/`REDIS_*`/`KAFKA_*` 这类容器网络内部地址 | 顶部钉了 `name: bank-notification-backend`：命名卷前缀就是项目名，删这行等于换一套空卷（表现是"库被清空"） |
+| 同上，`x-db-pass: &db-pass "${POSTGRES_PASSWORD:?…}"` | postgres 的 `POSTGRES_PASSWORD` 与 4 个业务服务的 `DB_PASS` 都引用这一个锚点 | 上一版把 `DB_PASS: 123456` 写成字面量留在仓里，且与 `.env` 口令脱钩：改 `.env` 就连不上库。合并入库后推出去才发现，故再补一刀（实测见下） |
 | `backend/.env`（**不入仓**） | `JWT_SECRET`、`INTERNAL_API_TOKEN`、`POSTGRES_PASSWORD` + `MAIL_*`、`SMS_*`、`MOCK_FAILURE_RATE` | 本轮 PRD-27 关闭：三个服务密钥从 compose 搬到这里。渠道凭据**只有这里能生效**（N51） |
 | `.env.example` | 上述键的**名字**模板（值一律留空） | 本轮补齐了三个服务密钥一节，含"必须换成自己的随机串"与换口令的坑 |
-| 各服务 `application.yml` | 结构 + `${VAR:default}` | 不再放凭据字面量；`internal.api.token` 的默认值只在容器外开发时生效，与 `.env` 不一致会让内部接口一律 401 |
+| 各服务 `application.yml` | 结构 + `${VAR:default}` | 邮件/短信的真实凭据已全部搬空（`MAIL_USER`/`MAIL_PASSWORD`/`SMS_ACCESS_KEY_*` 默认值为空）。**仍带 dev 默认值的只有三类，且只在环境变量缺失时生效（用 compose 起服务时一定被 `.env` 覆盖）**：`spring.datasource.password: ${DB_PASS:123456}`（4 个服务）、`jwt.secret: ${JWT_SECRET:<base64 dev 值>}`（gateway + customer）、`internal.api.token: ${INTERNAL_API_TOKEN:<base64 dev 值>}`（6 个服务）。容器外裸跑（IDEA / `mvn spring-boot:run`）时这三个默认值是仓库里公开可查的 ⇒ 那种跑法必须自己带环境变量 |
 
 本轮补的接线缺陷：`SMS_TIMEOUT_MS` 在 yml 里读、compose 却没传 ⇒ 文档里的旋钮一直空转；现已在 `channel-service` 环境加 `SMS_TIMEOUT_MS: ${SMS_TIMEOUT_MS:-8000}`。
 
 为什么用 `${VAR:?说明}` 而不是 `${VAR:-默认}`：JWT 密钥一旦为空，签发和校验都用空密钥，
 任何人都能自签一张合法 ADMIN 令牌。用 `:?` 让这种部署错误**在启动前**炸掉，而不是带着空密钥起来。
 实测两条：`docker compose config` 三个键都能插值；`--env-file` 指向空文件时 compose 按预期失败并报出中文说明。
+`DB_PASS` 收口后的复测：`docker compose config --format json` 解析出的 4 个 `DB_PASS` 与 postgres 的 `POSTGRES_PASSWORD` 全等（同源），
+`name` 仍是 `bank-notification-backend`，`frontend.build.context` 指向仓库根的 `web/`；因渲染后的环境变量值没变，`docker compose up -d` 零重建，网关与 8081 内部接口仍回 401。
 
 `.env.example` 覆盖：三个服务密钥 + `MAIL_*`（含 `MAIL_STARTTLS_ENABLE`/`MAIL_SSL_ENABLE`/`MAIL_FROM`）、
 `SMS_*`（含 6 个 `SMS_EVENT_TEMPLATE_<TYPE>`、`SMS_MAX_VARIABLE_LENGTH`、`SMS_TIMEOUT_MS`）、`MOCK_FAILURE_RATE`。

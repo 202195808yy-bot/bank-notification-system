@@ -78,6 +78,9 @@ docker exec bank-postgres psql -U postgres -d bank_notifications -c 'select ...'
 只改前端：`cd web && npm run build && cd ../backend && docker compose build frontend && docker compose up -d --no-deps --force-recreate frontend`。
 渠道凭据与服务密钥都只从 `backend/.env` 读（键名清单与填写要求见 `backend/.env.example`）；
 compose 里不留任何字面量密钥，缺键时 `docker compose up` 直接报错退出（PRD-27 本轮关闭）。
+例外口径要说清：各服务 `application.yml` 仍带 `${DB_PASS:123456}`、`${JWT_SECRET:<dev base64>}`、
+`${INTERNAL_API_TOKEN:<dev base64>}` 三类 dev 默认值，它们**只在环境变量缺失时生效**（compose 起服务时一定被 `.env` 覆盖）；
+容器外裸跑属于"缺失"那一档，详见 `README.md` 的「配置与安全约定」与 `docs/BACKEND_DOCUMENTATION.md` §7。
 
 ⚠️ 两个"看着像 bug"的坑，都在这里记一笔：
 1. **compose 顶部钉了 `name: bank-notification-backend`**。命名卷的前缀就是项目名，

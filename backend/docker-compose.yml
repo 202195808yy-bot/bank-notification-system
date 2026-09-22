@@ -1,4 +1,5 @@
 # 服务密钥一律从同目录的 .env 读（PRD-27）：JWT_SECRET / INTERNAL_API_TOKEN / POSTGRES_PASSWORD。
+# 业务服务连库的 DB_PASS 复用 POSTGRES_PASSWORD（见下面 x-db-pass），本文件不出现第二个口令字面量。
 # 本文件里不再留任何字面量 —— 缺变量时 compose 会直接报错退出，而不是带着空密钥起来
 # （空 JWT 密钥 = 任何人都能自签合法令牌；带 ?: 才能把这种部署错误挡在启动之前）。
 # ⚠️ application.yml 里 internal.api.token 的默认值只在容器外（IDEA / mvn spring-boot:run）开发时生效，
@@ -11,6 +12,10 @@
 name: bank-notification-backend
 
 x-internal-token: &internal-token "${INTERNAL_API_TOKEN:?INTERNAL_API_TOKEN 未设置：把 .env.example 复制为 .env 后填一个随机串}"
+# 四个业务服务连库用的 DB_PASS 与 postgres 容器自己的 POSTGRES_PASSWORD 必须是同一个值，
+# 所以两边都指向同一个 .env 变量：写成两份字面量的话，改了 .env 口令服务就连不上库，
+# 而且字面量口令会被推到公开仓库里。
+x-db-pass: &db-pass "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置：见 .env.example}"
 
 services:
   # ===== 基础设施层 =====
@@ -19,7 +24,7 @@ services:
     container_name: bank-postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置：见 .env.example}
+      POSTGRES_PASSWORD: *db-pass
       POSTGRES_DB: bank_notifications
     ports:
       # 绑定 127.0.0.1：本机 IDEA/psql 照常可连，局域网与其他主机不可达（PRD-01）
@@ -113,7 +118,7 @@ services:
       DB_PORT: 5432
       DB_NAME: bank_notifications
       DB_USER: postgres
-      DB_PASS: 123456
+      DB_PASS: *db-pass
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 未设置：见 .env.example（必须换成你自己的随机串）}
@@ -144,7 +149,7 @@ services:
       DB_PORT: 5432
       DB_NAME: bank_notifications
       DB_USER: postgres
-      DB_PASS: 123456
+      DB_PASS: *db-pass
       REDIS_HOST: redis
       REDIS_PORT: 6379
       SPRING_DATA_REDIS_HOST: redis
@@ -178,7 +183,7 @@ services:
       DB_PORT: 5432
       DB_NAME: bank_notifications
       DB_USER: postgres
-      DB_PASS: 123456
+      DB_PASS: *db-pass
       REDIS_HOST: redis
       REDIS_PORT: 6379
       SPRING_DATA_REDIS_HOST: redis
@@ -209,7 +214,7 @@ services:
       DB_PORT: 5432
       DB_NAME: bank_notifications
       DB_USER: postgres
-      DB_PASS: 123456
+      DB_PASS: *db-pass
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       INTERNAL_API_TOKEN: *internal-token
       SPRING_PROFILES_ACTIVE: docker
